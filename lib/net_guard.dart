@@ -171,11 +171,30 @@ class NetGuard {
     }
   }
 
-  static Future<void> _queue = Future.value();
+  static Future<void>? _running;
+  static bool _again = false;
 
-  /// Re-reads the network and applies the decision (pause, mobile data or allow). One at a time, so a network
-  /// change arriving while mobile data is being set up can't undo it.
-  static Future<void> refresh() => _queue = _queue.then((_) => _refresh()).catchError((Object e) => debugPrint('net: $e'));
+  /// Re-reads the network and applies the decision (pause, mobile data or allow). One at a time: a change that
+  /// arrives while one is running (e.g. while mobile data is being set up) runs right after it instead.
+  static Future<void> refresh() {
+    final r = _running;
+    if (r != null) {
+      _again = true;
+      return r;
+    }
+    return _running = () async {
+      try {
+        do {
+          _again = false;
+          await _refresh();
+        } while (_again);
+      } catch (e) {
+        debugPrint('net: $e');
+      } finally {
+        _running = null;
+      }
+    }();
+  }
 
   static Future<void> _refresh() async {
     final net = await read();
@@ -247,7 +266,8 @@ class NetGuard {
     decision.value = NetDecision.allow;
     onMobileData.value = false;
     _once = null;
-    _queue = Future.value(); // checks left over from an earlier test (or the resets above) must not hold up the next one
+    _running = null; // a check left over from an earlier test must not hold up the next one
+    _again = false;
   }
 }
 
