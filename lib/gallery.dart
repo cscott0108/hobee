@@ -508,15 +508,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
         if (!p.group)
           masonrySliver(aspects.sublist(p.start, p.end), _cols, (j) => tile(s.idx[p.start + j], false))
         else
-          SliverToBoxAdapter(
-            child: groupBlock(
-              aspects: aspects.sublist(p.start, p.end),
-              cols: _cols,
-              color: cs.primary,
-              header: _GroupHeader(entries[s.idx[p.start]].post, p.end - p.start,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Viewer(entries: entries, start: s.idx[p.start])))),
-              tile: (k) => tile(s.idx[p.start + k], true),
-            ),
+          groupSliver(
+            aspects: aspects.sublist(p.start, p.end),
+            cols: _cols,
+            color: cs.primary,
+            header: _GroupHeader(entries[s.idx[p.start]].post, p.end - p.start,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Viewer(entries: entries, start: s.idx[p.start])))),
+            tile: (k) => tile(s.idx[p.start + k], true),
           ),
     ]);
   }
