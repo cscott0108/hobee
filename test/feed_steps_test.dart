@@ -21,6 +21,7 @@ void main() {
     (shown, more) = capResults(all, 3 * resultStep);
     expect(shown.length, 1234);
     expect(more, false);
-    expect(capResults(all.sublist(0, 10), resultStep), (all.sublist(0, 10), false));
+    final few = all.sublist(0, 10);
+    expect(capResults(few, resultStep), (few, false));
   });
 }
