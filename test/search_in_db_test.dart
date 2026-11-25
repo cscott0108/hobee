@@ -90,7 +90,7 @@ void main() {
     await d.delete('posts');
   });
 
-    test('a search naming a followed channel checks it next', () async {
+  test('a search naming a followed channel checks it next', () async {
     final d = await Db.db;
     for (final t in ['follows', 'profiles', 'cursors']) {
       await d.delete(t);
