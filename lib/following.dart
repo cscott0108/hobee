@@ -33,24 +33,48 @@ class FollowState {
   int? newest, oldest; // created_utc range loaded so far
   bool done; // no older posts left
   int n; // posts loaded for this entry so far
-  FollowState({this.at = 0, this.newest, this.oldest, this.done = false, this.n = 0});
+  int quiet; // checks in a row that found nothing new
+  FollowState({this.at = 0, this.newest, this.oldest, this.done = false, this.n = 0, this.quiet = 0});
 
   factory FollowState.decode(String? s) {
     if (s == null) return FollowState();
     try {
       final m = jsonDecode(s) as Map<String, dynamic>;
-      return FollowState(at: m['at'] as int? ?? 0, newest: m['new'] as int?, oldest: m['old'] as int?, done: m['done'] == true, n: m['n'] as int? ?? 0);
+      return FollowState(
+          at: m['at'] as int? ?? 0, newest: m['new'] as int?, oldest: m['old'] as int?, done: m['done'] == true, n: m['n'] as int? ?? 0,
+          quiet: m['q'] as int? ?? 0);
     } catch (_) {
       return FollowState();
     }
   }
-  String encode() => jsonEncode({'at': at, 'new': ?newest, 'old': ?oldest, 'done': done, 'n': n});
+  String encode() => jsonEncode({'at': at, 'new': ?newest, 'old': ?oldest, 'done': done, 'n': n, if (quiet > 0) 'q': quiet});
 }
 
 class Following {
   /// Requests per fetchMore call.
   static int budget = 4; // keeps one call well under the grid's 2-minute timeout, even with a cooldown
   static const freshFor = Duration(minutes: 30);
+  static const maxRecheck = Duration(hours: 12);
+
+  /// How long an entry rests after a check, learned from how active it is: by the age of its newest post
+  /// (posted today: [freshFor]; this week: 2 h; older: [maxRecheck]), and doubled for every check in a row
+  /// that found nothing new (30 min, 1 h, 2 h ...), up to [maxRecheck]. Something new resets the streak.
+  static Duration recheckAfter(FollowState s, int nowMs) {
+    var base = freshFor;
+    final n = s.newest;
+    if (n != null) {
+      final age = Duration(milliseconds: nowMs - n * 1000);
+      base = age < const Duration(days: 1) ? freshFor : age < const Duration(days: 7) ? const Duration(hours: 2) : maxRecheck;
+    }
+    final streak = freshFor * (1 << s.quiet.clamp(0, 5));
+    final d = streak > base ? streak : base;
+    return d > maxRecheck ? maxRecheck : d;
+  }
+
+  static final _force = <String>{};
+
+  /// Pull-to-refresh: the next round checks every entry not checked in the last [freshFor], however quiet.
+  static void forceFull(String source) => _force.add(source);
   static int pageSize = 100; // Arctic Shift maximum; fewer rows back means the entry has no older posts
   /// Refreshing an entry that already has posts only asks for this many newer ones (cheaper for the archive).
   static int refreshSize = 25;
@@ -62,12 +86,30 @@ class Following {
   static int fillPosts = 500;
   /// Fill-back pages per entry per round (a guard: failed pages count too, so errors can't loop).
   static int fillPages = 10;
-  /// Arctic Shift answers "slow down" (HTTP 422) at about one request a second, so the feed adapts: it starts
-  /// at [minGap] between its requests, doubles the gap (up to [maxGap]) after every slow-down and eases back
-  /// towards [minGap] after each success. It runs at whatever pace the archive allows from this network.
-  static Duration minGap = const Duration(seconds: 3);
+  /// Arctic Shift sets its limits by server load (its guide: "a couple requests per second" is fine) and answers
+  /// "slow down" (HTTP 422) when busy, so the feed adapts: it starts at [minGap] between its requests, doubles
+  /// the gap (up to [maxGap]) after every slow-down and eases back towards [minGap] after each success.
+  static Duration minGap = const Duration(milliseconds: 1200);
   static Duration maxGap = const Duration(seconds: 15);
-  static Duration gap = const Duration(seconds: 3);
+  static Duration gap = const Duration(milliseconds: 1200);
+
+  /// Settings: two archive requests in flight at once (off by default). Drops back to one for two minutes
+  /// after any slow-down.
+  static final twoAtATime = ValueNotifier<bool>(false);
+  static const _twoKey = 'followTwoAtATime';
+  static DateTime _slowUntil = DateTime.fromMillisecondsSinceEpoch(0);
+
+  static Future<void> loadPrefs() async {
+    twoAtATime.value = (await SharedPreferences.getInstance()).getBool(_twoKey) ?? false;
+  }
+
+  static Future<void> setTwoAtATime(bool on) async {
+    twoAtATime.value = on;
+    await (await SharedPreferences.getInstance()).setBool(_twoKey, on);
+  }
+
+  /// Requests in flight per batch right now.
+  static int get inFlight => twoAtATime.value && DateTime.now().isAfter(_slowUntil) ? 2 : 1;
   static DateTime? _last;
 
   /// Next gap after a request: doubled after a slow-down, 20 % shorter after a success, within the limits.
@@ -192,7 +234,10 @@ class Following {
       gap = nextGap(gap, busy: false);
       return r;
     } catch (e) {
-      if (_busy(e)) gap = nextGap(gap, busy: true);
+      if (_busy(e)) {
+        gap = nextGap(gap, busy: true);
+        _slowUntil = DateTime.now().add(const Duration(minutes: 2));
+      }
       rethrow;
     } finally {
       _last = DateTime.now();
@@ -239,9 +284,13 @@ class Following {
     );
     final states = {for (final f in follows) f: await _state(source, f)};
 
-    // Start a refresh round on pull-to-refresh or the first call this session.
+    // Start a refresh round when the feed opens, on pull-to-refresh, or on the first call this session. Each entry
+    // is due after its learned rest ([recheckAfter]); pull-to-refresh checks all but the ones just checked.
     if (fromStart || !_round.containsKey(source)) {
-      final stale = follows.where((f) => t - states[f]!.at >= freshFor.inMilliseconds).toList()
+      final force = _force.remove(source);
+      final stale = follows
+          .where((f) => t - states[f]!.at >= (force ? freshFor : recheckAfter(states[f]!, t)).inMilliseconds)
+          .toList()
         ..sort((a, b) => states[a]!.at.compareTo(states[b]!.at));
       _round[source] = stale;
       _checked[source] = (follows.length - stale.length, follows.length, 0);
@@ -286,11 +335,9 @@ class Following {
       }
     }
 
-    // 1) refresh: newest posts first
-    while (queue.isNotEmpty && used < budget) {
-      final f = queue.removeAt(0);
+    // 1) refresh: newest posts first (one at a time, or two side by side when that setting is on)
+    Future<void> refreshOne(Follow f) async {
       final s = states[f]!;
-      used++;
       try {
         final rows = await _paced(f, after: s.newest, limit: s.newest == null ? pageSize : refreshSize);
         await save(f, rows);
@@ -306,6 +353,7 @@ class Following {
         } else if (s.newest == null) {
           s.done = true; // nothing at all for this entry
         }
+        s.quiet = rows.isEmpty ? s.quiet + 1 : 0;
         s.at = t;
         await _save(source, f, s);
         checked++;
@@ -320,6 +368,16 @@ class Following {
         }
       }
       status();
+    }
+
+    while (queue.isNotEmpty && used < budget) {
+      final batch = <Follow>[];
+      final n = inFlight;
+      while (batch.length < n && queue.isNotEmpty && used < budget) {
+        batch.add(queue.removeAt(0));
+        used++;
+      }
+      await Future.wait(batch.map(refreshOne));
     }
 
     // 2) fill-back to the window, then 3) page back on scroll: entries with the newest unexplored history
@@ -370,6 +428,8 @@ class Following {
   @visibleForTesting
   static void debugReset() {
     _round.clear();
+    _force.clear();
+    _slowUntil = DateTime.fromMillisecondsSinceEpoch(0);
     _checked.clear();
     _retried.clear();
     _filled.clear();
