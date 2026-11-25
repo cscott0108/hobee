@@ -281,7 +281,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
   void _followingSaved() {
     if (!isFollowing(effectiveSource())) return;
     // A windowed feed reloads only its window, and less often, so scrolling stays smooth while a refresh runs.
-    _folT ??= Timer(Duration(milliseconds: _windowed ? 4000 : 1500), () {
+    // While a search or date range looks through the whole feed, every reload re-reads and re-ranks all of it,
+    // so new posts join less often.
+    _folT ??= Timer(Duration(milliseconds: _needAll ? 20000 : (_windowed ? 4000 : 1500)), () {
       _folT = null;
       if (!mounted || !isFollowing(effectiveSource())) return;
       if (_dbLoading) return _followingSaved(); // a chunk is loading: reload after it, not over it
