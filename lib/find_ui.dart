@@ -52,6 +52,9 @@ class InstantSearchField extends StatefulWidget {
   State<InstantSearchField> createState() => _InstantSearchFieldState();
 }
 
+/// Pause after typing before the search runs: longer on big lists, where each search scans the database.
+int instantSearchDelayMs = 250;
+
 class _InstantSearchFieldState extends State<InstantSearchField> {
   late final c = TextEditingController(text: searchQuery.value);
   Timer? _t;
@@ -84,7 +87,7 @@ class _InstantSearchFieldState extends State<InstantSearchField> {
         onChanged: (v) {
           setState(() {});
           _t?.cancel();
-          _t = Timer(const Duration(milliseconds: 250), () => searchQuery.value = v.trim());
+          _t = Timer(Duration(milliseconds: instantSearchDelayMs), () => searchQuery.value = v.trim());
         },
         onClear: () {
           _t?.cancel();

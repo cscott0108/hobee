@@ -201,6 +201,38 @@ class Following {
     return posts.length;
   }
 
+  /// The channel the refresher is checking right now ([Follow.key]), or null.
+  static final checking = ValueNotifier<String?>(null);
+
+  /// The last channel check: its key, new posts, the pictures and videos in them, and why it failed (or null).
+  static final lastCheck = ValueNotifier<({String key, int posts, int media, String? error})?>(null);
+
+  /// Whether [key] is still waiting in [source]'s refresh round.
+  static bool queued(String source, String key) => _round[source]?.any((f) => f.key == key) ?? false;
+
+  /// A search on a Following list names one of its channels ("asianpussyass", "r/name" or "u/name"): check that
+  /// channel next, even if it isn't due, so the search shows its newest posts. Returns the channel, or null.
+  static Future<Follow?> searchedFor(String source, String query) async {
+    final pid = followingProfile(source);
+    if (pid == null) return null;
+    final q = query.trim().toLowerCase();
+    final m = RegExp(r'^/?([ru])/([a-z0-9_-]+)$').firstMatch(q) ?? RegExp(r'^()([a-z0-9_-]{3,})$').firstMatch(q);
+    if (m == null) return null;
+    final kind = m.group(1), name = m.group(2)!;
+    final f = (await FollowStore.follows(pid)).where((x) =>
+        x.name.toLowerCase() == name &&
+        (kind == null || kind.isEmpty || (kind == 'r') == (x.kind == FollowKind.sub))).firstOrNull;
+    if (f == null) return null;
+    final queue = _round.putIfAbsent(source, () => []);
+    queue.removeWhere((x) => x.key == f.key);
+    queue.insert(0, f);
+    _checked.putIfAbsent(source, () => (0, 0, 0));
+    _retried.putIfAbsent(source, () => {});
+    _filled.putIfAbsent(source, () => {});
+    FollowingRefresher.start(source);
+    return f;
+  }
+
   /// Moves the follow for [author] (or else subreddit [sub]) to the front of every running refresh round.
   static void bump({String? author, String? sub}) {
     final kind = author != null ? FollowKind.user : FollowKind.sub;
@@ -334,15 +366,17 @@ class Following {
     var added = 0;
     var used = 0;
 
-    Future<void> save(Follow f, List<Map<String, dynamic>> rows) async {
+    Future<int> save(Follow f, List<Map<String, dynamic>> rows) async {
       final posts = <Post>[];
       for (final d in rows) {
         final p = Post.fromJson(slimPost(d));
         if (p != null) posts.add(p);
       }
+      final media = posts.fold<int>(0, (a, p) => a + p.media.length);
       await Db.savePosts(source, posts);
       added += posts.length;
       if (posts.isNotEmpty) version.value++;
+      return media;
     }
 
     final filled = _filled.putIfAbsent(source, () => {});
@@ -369,9 +403,11 @@ class Following {
     // 1) refresh: newest posts first (one at a time, or two side by side when that setting is on)
     Future<void> refreshOne(Follow f) async {
       final s = states[f]!;
+      checking.value = f.key;
       try {
         final rows = await _paced(f, after: s.newest, limit: s.newest == null ? pageSize : refreshSize);
-        await save(f, rows);
+        final media = await save(f, rows);
+        lastCheck.value = (key: f.key, posts: rows.length, media: media, error: null);
         s.n += rows.length;
         final ts = [for (final r in rows) _ts(r)].where((x) => x > 0).toList();
         if (ts.isNotEmpty) {
@@ -393,6 +429,7 @@ class Following {
       } catch (e) {
         s.fails++;
         s.err = failReason(e);
+        lastCheck.value = (key: f.key, posts: 0, media: 0, error: s.err);
         try {
           await _save(source, f, s);
         } catch (_) {}
@@ -405,6 +442,7 @@ class Following {
           checked++;
         }
       }
+      if (checking.value == f.key) checking.value = null;
       status();
     }
 

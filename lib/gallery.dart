@@ -1,4 +1,5 @@
 import 'following.dart';
+import 'follows.dart';
 import 'age.dart';
 import 'saved_ui.dart';
 import 'downloaded.dart';
@@ -109,6 +110,21 @@ class _GalleryScreenState extends State<GalleryScreen> {
   bool _windowed = false, _dbMore = false, _dbLoading = false;
   String? _allSrc;
   bool get _needAll => Rel.queryText().trim().isNotEmpty || dateRange.value != null;
+
+  // A big feed with a search or date range reads only the posts that can match (found by the database), not
+  // the whole feed. [_matchKey] is the search those posts were read for (null: not a filtered read).
+  String? _matchKey;
+  int _count = 0;
+  bool _newWhileSearching = false;
+  Follow? _searched; // the followed channel this search named, being checked for new posts
+  String get _searchKey => '${Rel.queryText()}|${dateRange.value}';
+  bool get _big => _count > Db.windowMin;
+  // On a big list a search the database can't narrow down (1–2 letters) only filters the posts already loaded.
+  bool get _shortSearch => _big && _needAll && dateRange.value == null && !dbSearchUsable(Rel.queryText());
+  bool get _readAll => _needAll && !_shortSearch;
+  bool get _bigSearch => _readAll && _big;
+  static const matchCap = 2000;
+  bool _matchMore = false;
 
   // Every feed (Following, subreddits, users, Deep Search, searches and date ranges) shows its posts
   // [resultStep] at a time, newest (or best) first, so duplicate grouping, picture checks and layout only cover
@@ -239,10 +255,37 @@ class _GalleryScreenState extends State<GalleryScreen> {
   Future<void> _fromDb({bool grow = false}) async {
     final src = effectiveSource();
     final n = await Db.count(src);
-    final (kind, limit) = Db.windowRead(count: n, shown: _all.length, sameWindow: src == _allSrc && _windowed, needAll: _needAll, grow: grow);
+    _count = n;
+    instantSearchDelayMs = _big ? 600 : 250;
+    final (kind, limit) = Db.windowRead(count: n, shown: _all.length, sameWindow: src == _allSrc && _windowed, needAll: _readAll, grow: grow);
     final win = kind != WindowRead.all;
+    final key = _bigSearch ? _searchKey : null;
     List<Post> all, fresh;
     switch (kind) {
+      case WindowRead.all when key != null:
+        // Only the posts that can match this search or date range, found by the database.
+        final q = dbSearch(Rel.queryText());
+        final r = dateRange.value;
+        final (hits, more) = await Db.loadMatchingCapped(src,
+            anyOf: q.anyOf, author: q.author, sub: q.sub,
+            from: r == null ? null : r.start.millisecondsSinceEpoch ~/ 1000,
+            to: r == null ? null : r.end.add(const Duration(days: 1)).millisecondsSinceEpoch ~/ 1000,
+            cap: matchCap);
+        // Typed on meanwhile: these results are already out of date, read for the new search instead.
+        if (!mounted || key != (_bigSearch ? _searchKey : null)) {
+          _rebuildSoon();
+          return;
+        }
+        all = fresh = hits;
+        _matchMore = more;
+        _newWhileSearching = false;
+        // A search naming a followed channel checks that channel next.
+        if (key != _matchKey && isFollowing(src)) {
+          _searched = null;
+          Following.searchedFor(src, searchQuery.value).then((f) {
+            if (mounted && f != null && src == effectiveSource()) setState(() => _searched = f);
+          }).ignore();
+        }
       case WindowRead.all:
         all = fresh = await Db.load(src);
       case WindowRead.next:
@@ -252,6 +295,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         all = fresh = await Db.loadPage(src, limit: limit);
     }
     if (!mounted || src != effectiveSource()) return;
+    _matchKey = key;
     _all = all;
     _allSrc = src;
     _windowed = win;
@@ -297,6 +341,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// The Following refresher saved posts: reload from the database (at most every 1.5 s), keeping the view in place.
   void _followingSaved() {
     if (!isFollowing(effectiveSource())) return;
+    if (_matchKey != null) {
+      // Searching a big feed: don't re-read under the results; offer to update instead.
+      if (!_newWhileSearching && mounted) setState(() => _newWhileSearching = true);
+      return;
+    }
     // A windowed feed reloads only its window, and less often, so scrolling stays smooth while a refresh runs.
     // While a search or date range looks through the whole feed, every reload re-reads and re-ranks all of it,
     // so new posts join less often.
@@ -335,8 +384,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
   void _rebuild() {
     _rebuildT?.cancel();
     if (!_active || !mounted) return;
-    if (_windowed && _needAll && !_dbLoading) {
-      // Search and date ranges look through the whole feed, not just the loaded window.
+    final wantKey = _bigSearch ? _searchKey : null;
+    if (!_dbLoading && ((_windowed && _readAll) || (_big && _matchKey != wantKey))) {
+      // Search and date ranges look through the whole feed (big ones through the database), not just the loaded
+      // window; a changed or cleared search reads again.
       _dbLoading = true;
       _fromDb().whenComplete(() {
         if (mounted) setState(() => _dbLoading = false);
@@ -363,7 +414,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     copies = cp;
     final e = flatten(shown);
     final secs = <_Section>[];
-    final rel = Rel.active && relevanceSort.value;
+    final rel = Rel.active && relevanceOn;
     final ranked = rel || (isSubSearch(effectiveSource()) && srSort.value != SrSort.newest);
     if (ranked && e.isNotEmpty) {
       final d = e.first.post.date.toLocal();
@@ -650,6 +701,52 @@ class _GalleryScreenState extends State<GalleryScreen> {
                   onShowText: () { mediaFilter.value = MediaFilter.text; applyLayout(PostLayout.card); },
                 ),
               ),
+            if (_shortSearch || (_matchMore && _matchKey != null))
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                  child: Text(
+                      _shortSearch
+                          ? 'Type 3 or more letters to search the whole list (showing matches among the loaded posts)'
+                          : 'Showing the newest ${matchCap ~/ 1000},000 matches. Add a word to narrow it down.',
+                      key: const Key('search-hint'),
+                      style: TextStyle(fontSize: 12.5, color: cs.onSurfaceVariant)),
+                ),
+              ),
+            if (_searched != null && _matchKey != null)
+              SliverToBoxAdapter(
+                child: SearchedChannelRow(
+                  source: effectiveSource(),
+                  channel: _searched!,
+                  onUpdate: () {
+                    setState(() => _newWhileSearching = false);
+                    _fromDb();
+                  },
+                  onRetry: () => Following.searchedFor(effectiveSource(), _searched!.label).ignore(),
+                  onDone: () {
+                    if (mounted) setState(() => _searched = null);
+                  },
+                ),
+              ),
+            if (_newWhileSearching && _matchKey != null && _searched == null)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                  child: Row(children: [
+                    Icon(Icons.fiber_new_outlined, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    const Expanded(child: Text('New posts were saved since this search', style: TextStyle(fontSize: 13))),
+                    TextButton(
+                      key: const Key('search-update'),
+                      onPressed: () {
+                        setState(() => _newWhileSearching = false);
+                        _fromDb();
+                      },
+                      child: const Text('Update'),
+                    ),
+                  ]),
+                ),
+              ),
             if (seeking)
               SliverToBoxAdapter(
                 child: Column(children: [
@@ -839,5 +936,66 @@ class _Badge extends StatelessWidget {
         padding: const EdgeInsets.all(2),
         decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
         child: Icon(icon, color: Colors.white, size: 16),
+      );
+}
+
+/// Above search results: the followed channel the search named, while the refresher checks it for new posts
+/// (spinner), then what it found (new posts and pictures, with Update), that it's up to date, or why it failed.
+class SearchedChannelRow extends StatefulWidget {
+  final String source;
+  final Follow channel;
+  final VoidCallback onUpdate, onRetry, onDone;
+  const SearchedChannelRow({super.key, required this.source, required this.channel, required this.onUpdate, required this.onRetry, required this.onDone});
+  @override
+  State<SearchedChannelRow> createState() => _SearchedChannelRowState();
+}
+
+class _SearchedChannelRowState extends State<SearchedChannelRow> {
+  Timer? _hide;
+
+  @override
+  void dispose() {
+    _hide?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Listenable.merge([Following.checking, Following.lastCheck]),
+        builder: (context, _) {
+          final cs = Theme.of(context).colorScheme;
+          final k = widget.channel.key, name = widget.channel.label;
+          final last = Following.lastCheck.value;
+          final busy = Following.checking.value == k;
+          final waiting = !busy && Following.queued(widget.source, k);
+          Widget row(Widget lead, String text, {Widget? action}) => Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 8, 0),
+                child: Row(key: const Key('searched-channel'), children: [
+                  SizedBox(width: 18, height: 18, child: Center(child: lead)),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+                  ?action,
+                ]),
+              );
+          const spin = SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2));
+          if (busy) return row(spin, 'Checking $name for new posts…');
+          if (waiting) return row(spin, 'Waiting to check $name…');
+          if (last == null || last.key != k) return const SizedBox.shrink();
+          if (last.error != null) {
+            return row(Icon(Icons.error_outline, size: 18, color: cs.error), "Couldn't check $name: ${last.error}",
+                action: TextButton(key: const Key('searched-retry'), onPressed: widget.onRetry, child: const Text('Retry')));
+          }
+          if (last.posts == 0) {
+            _hide ??= Timer(const Duration(seconds: 4), widget.onDone);
+            return row(Icon(Icons.check_circle_outline, size: 18, color: cs.primary), '$name is up to date');
+          }
+          final m = last.media == 1 ? '1 picture or video' : '${last.media} pictures and videos';
+          return row(Icon(Icons.fiber_new_outlined, size: 18, color: cs.primary),
+              'Found ${last.posts} new post${last.posts == 1 ? '' : 's'} ($m) in $name',
+              action: TextButton(key: const Key('searched-update'), onPressed: () {
+                widget.onUpdate();
+                widget.onDone();
+              }, child: const Text('Update')));
+        },
       );
 }

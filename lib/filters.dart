@@ -108,6 +108,19 @@ bool get sortable => currentSource.value == 'home' || currentSource.value.starts
 /// Sort by relevance while a keyword is present.
 final relevanceSort = ValueNotifier<bool>(true);
 
+/// The same choice for Following lists, where a search shows newest first unless you pick Relevance.
+final followingRelevance = ValueNotifier<bool>(false);
+
+/// Relevance order is on for the feed being shown.
+bool get relevanceOn => isFollowing(effectiveSource()) ? followingRelevance.value : relevanceSort.value;
+set relevanceOn(bool v) {
+  if (isFollowing(effectiveSource())) {
+    followingRelevance.value = v;
+  } else {
+    relevanceSort.value = v;
+  }
+}
+
 /// Relevance ranking for the current source and query. Small sets rank inline; big ones in an isolate.
 class Rel {
   static final ready = ValueNotifier<int>(0);
@@ -218,7 +231,7 @@ class Rel {
   }
 }
 
-final viewFilters = Listenable.merge([relevanceSort, Rel.ready, mediaFilter, statusFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone, hideAdult, srSort]);
+final viewFilters = Listenable.merge([relevanceSort, followingRelevance, Rel.ready, mediaFilter, statusFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone, hideAdult, srSort]);
 
 // ---- filters remembered per screen (home feeds vs Deep Search) ----
 String _scope = 'main';
@@ -441,8 +454,37 @@ List<Post> filterAndCount(List<Post> all) {
   }
   if (!_sameCounts(chipCounts.value, c)) chipCounts.value = c;
   if (sr) srSortList(out);
-  if (hits != null && relevanceSort.value) out.sort((a, b) => (hits[b.id]?.score ?? 0).compareTo(hits[a.id]?.score ?? 0));
+  if (hits != null && relevanceOn) out.sort((a, b) => (hits[b.id]?.score ?? 0).compareTo(hits[a.id]?.score ?? 0));
   return out;
+}
+
+/// What the database can pre-filter for a search: one group of words per search term (any word of a group
+/// may match; "a OR b" puts both in one group), each cut to its start so plurals and endings still match
+/// ("kitties" looks for "kitti"); words under 3 letters, phrases' short words and excluded terms are left to
+/// the app. Plus the u/ and r/ filters.
+({List<List<String>> anyOf, String? author, String? sub}) dbSearch(String query) {
+  final q = parseQuery(query);
+  String stem(String w) => w.length <= 4 ? w : w.substring(0, (w.length - 2) < 4 ? 4 : w.length - 2);
+  final groups = <int, List<String>>{};
+  for (final t in q.pos) {
+    final words = [for (final w in t.words) if (w.length >= 3) w];
+    if (words.isEmpty) {
+      groups[t.group] = const []; // a group with an unusable term can't be narrowed down
+      continue;
+    }
+    // A phrase: its longest word is enough to narrow down.
+    final w = words.reduce((a, b) => b.length > a.length ? b : a);
+    final g = groups[t.group];
+    if (g != null && g.isEmpty) continue;
+    (groups[t.group] ??= []).add(stem(w));
+  }
+  return (anyOf: [for (final g in groups.values) if (g.isNotEmpty) g], author: q.author, sub: q.sub);
+}
+
+/// True when [dbSearch] of [query] can narrow a big feed down (a word of 3+ letters, or a u/ or r/ filter).
+bool dbSearchUsable(String query) {
+  final q = dbSearch(query);
+  return q.anyOf.isNotEmpty || q.author != null || q.sub != null;
 }
 
 bool _sameCounts(Map<Object, int> a, Map<Object, int> b) => a.length == b.length && a.entries.every((e) => b[e.key] == e.value);
