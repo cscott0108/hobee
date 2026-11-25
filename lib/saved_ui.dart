@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'gallery_backup.dart';
 import 'gallery_export.dart';
+import 'masonry.dart';
 import 'saved.dart';
 import 'viewer.dart';
 
@@ -55,12 +56,16 @@ class _SavedGalleryScreenState extends State<SavedGalleryScreen> {
   void initState() {
     super.initState();
     SavedStore.changes.addListener(_load);
+    originalShapeGrid.addListener(_shape);
     _load();
   }
+
+  void _shape() => setState(() {});
 
   @override
   void dispose() {
     SavedStore.changes.removeListener(_load);
+    originalShapeGrid.removeListener(_shape);
     super.dispose();
   }
 
@@ -71,6 +76,21 @@ class _SavedGalleryScreenState extends State<SavedGalleryScreen> {
       items = all;
       sel.retainAll({for (final it in all) it.id});
     });
+    _measure(all);
+  }
+
+  /// Pictures saved without a known size (some sources don't give one) get measured from the file once,
+  /// so their tiles keep the picture's shape like the feeds do.
+  Future<void> _measure(List<SavedItem> all) async {
+    for (final it in all) {
+      if (it.isVideo || it.id == null || (it.width ?? 0) > 0 && (it.height ?? 0) > 0) continue;
+      final s = await SavedStore.imageSize(it.path);
+      if (s == null || !mounted) continue;
+      await SavedStore.setSize(it.id!, s.$1, s.$2);
+      final i = items?.indexWhere((x) => x.id == it.id) ?? -1;
+      if (i < 0 || !mounted) continue;
+      setState(() => items![i] = SavedItem.fromRow({...it.toRow(), 'id': it.id, 'width': s.$1, 'height': s.$2}));
+    }
   }
 
   void _toggle(SavedItem it) => setState(() => sel.contains(it.id) ? sel.remove(it.id) : sel.add(it.id!));
@@ -297,18 +317,26 @@ class _SavedGalleryScreenState extends State<SavedGalleryScreen> {
                         padding: EdgeInsets.all(32),
                         child: Text('Nothing saved yet. Pictures and videos you download from the viewer land here.', textAlign: TextAlign.center),
                       ))
-                    : GridView.builder(
-                        padding: const EdgeInsets.all(2),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, mainAxisSpacing: 2, crossAxisSpacing: 2),
-                        itemCount: list.length,
-                        itemBuilder: (_, i) => _Tile(
-                          key: Key('saved-tile-$i'),
-                          item: list[i],
-                          selected: sel.contains(list[i].id),
-                          onTap: () => selecting ? _toggle(list[i]) : _open(i),
-                          onLongPress: () => _toggle(list[i]),
+                    // Same layout as the feeds: tiles keep the picture's shape (Settings → Grid: original shape).
+                    : CustomScrollView(slivers: [
+                        SliverPadding(
+                          padding: const EdgeInsets.all(1),
+                          sliver: masonrySliver(
+                            [for (final it in list) tileAspect(it.media.aspect, square: !originalShapeGrid.value)],
+                            3,
+                            (i) => Padding(
+                              padding: const EdgeInsets.all(1),
+                              child: _Tile(
+                                key: Key('saved-tile-$i'),
+                                item: list[i],
+                                selected: sel.contains(list[i].id),
+                                onTap: () => selecting ? _toggle(list[i]) : _open(i),
+                                onLongPress: () => _toggle(list[i]),
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                      ]),
           ),
         ]),
       ),

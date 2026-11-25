@@ -165,4 +165,21 @@ void main() {
     expect((z.arguments['paths'] as List).skip(1), [for (final it in s) it.path]);
     await t.pumpWidget(const SizedBox());
   });
+
+  testWidgets('tiles keep the picture shape like the feeds (wide picture -> wide tile)', (t) async {
+    await t.runAsync(() async {
+      tmp = await Directory.systemTemp.createTemp('hobees_ui');
+      SavedStore.baseDir = () async => tmp;
+      await (await Db.db).delete('saved');
+      final f = await SavedStore.newFile('png');
+      await f.writeAsBytes([1]);
+      await SavedStore.add(SavedItem(path: f.path, kind: 'image', width: 200, height: 100, savedAt: 1));
+    });
+    addTearDown(() => t.runAsync(() => tmp.delete(recursive: true)));
+    await t.pumpWidget(const MaterialApp(home: SavedGalleryScreen()));
+    await settle(t);
+    final r = t.getSize(find.byKey(const Key('saved-tile-0')));
+    expect(r.width / r.height, closeTo(2, 0.1));
+    await t.pumpWidget(const SizedBox());
+  });
 }
