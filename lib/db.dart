@@ -6,6 +6,20 @@ import 'package:flutter/foundation.dart' show compute;
 
 List<Post> _decodeAll(List<String> js) => js.map((j) => Post.fromJson(jsonDecode(j))).whereType<Post>().toList();
 
+/// (rowid, user, subreddit) in lower case for each saved post's JSON; '' when missing or unreadable.
+List<(int, String, String)> _channelsOf(List<(int, String)> rows) => [
+      for (final (r, j) in rows)
+        () {
+          try {
+            final m = jsonDecode(j);
+            String s(Object? o) => o is String ? o.toLowerCase() : '';
+            return m is Map ? (r, s(m['author']), s(m['subreddit'])) : (r, '', '');
+          } catch (_) {
+            return (r, '', '');
+          }
+        }(),
+    ];
+
 enum WindowRead { all, window, next }
 
 class Db {
@@ -17,7 +31,7 @@ class Db {
 
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 9, onUpgrade: (db, o, n) async {
+    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 10, onUpgrade: (db, o, n) async {
       if (o < 2) await _v2(db);
       if (o < 3) await _v3(db);
       if (o < 4) await _v4(db);
@@ -26,6 +40,7 @@ class Db {
       if (o < 7) await _v7(db);
       if (o < 8) await _v8(db);
       if (o < 9) await _v9(db);
+      if (o < 10) await _v10(db);
     }, onCreate: (db, v) async {
       await db.execute('CREATE TABLE posts(source TEXT, id TEXT, created INTEGER, json TEXT, PRIMARY KEY(source,id))');
       await db.execute('CREATE INDEX idx_src_created ON posts(source, created)');
@@ -37,8 +52,54 @@ class Db {
       await _v6(db);
       await _v8(db);
       await _v9(db);
+      await _v10(db);
     });
     return _db!;
+  }
+
+  /// v10: each post's user and subreddit (lower case) in their own indexed columns, so one channel's saved
+  /// posts are found without reading every post. Older rows are filled in by [backfillChannels].
+  static Future<void> _v10(Database db) async {
+    final cols = {for (final r in await db.rawQuery('PRAGMA table_info(posts)')) r['name']};
+    if (!cols.contains('author')) await db.execute('ALTER TABLE posts ADD COLUMN author TEXT');
+    if (!cols.contains('sub')) await db.execute('ALTER TABLE posts ADD COLUMN sub TEXT');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author, source)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_posts_sub ON posts(sub, source)');
+  }
+
+  /// True once every saved post has its user and subreddit columns (new installs at once, upgrades after
+  /// [backfillChannels]). Until then channel lookups fall back to scanning.
+  static bool channelsReady = false;
+
+  /// Fills the user and subreddit columns of posts saved before v10, [chunkRows] at a time, decoded off the UI
+  /// thread, with a short pause between chunks so the app stays smooth. Safe to call again; stops when done.
+  static Future<void> backfillChannels({Duration pause = const Duration(milliseconds: 60)}) async {
+    final d = await db;
+    while (true) {
+      final rows = await d.rawQuery('SELECT rowid AS r, json FROM posts WHERE author IS NULL LIMIT ?', [chunkRows]);
+      if (rows.isEmpty) break;
+      final raw = [for (final r in rows) (r['r'] as int, r['json'] as String)];
+      final names = raw.length > 150 ? await compute(_channelsOf, raw) : _channelsOf(raw);
+      final b = d.batch();
+      for (final (rowid, author, sub) in names) {
+        b.rawUpdate('UPDATE posts SET author=?, sub=? WHERE rowid=?', [author, sub, rowid]);
+      }
+      await b.commit(noResult: true);
+      if (rows.length < chunkRows) break;
+      await Future<void>.delayed(pause);
+    }
+    channelsReady = true;
+  }
+
+  /// Posts saved in any Following list by [author] (and in [sub], when given), or in subreddit [sub]; each
+  /// post once, newest first. Empty until [channelsReady].
+  static Future<List<Post>> followedChannel({String? author, String? sub}) async {
+    if (!channelsReady || (author == null && sub == null)) return const [];
+    final w = <String>["source LIKE 'fol:%'"];
+    final args = <Object?>[];
+    if (author != null) { w.insert(0, 'author=?'); args.insert(0, author.toLowerCase()); }
+    if (sub != null) { w.insert(author == null ? 0 : 1, 'sub=?'); args.insert(author == null ? 0 : 1, sub.toLowerCase()); }
+    return _loadChunked(w.join(' AND '), args, onePerId: true);
   }
 
   /// v9: media you downloaded (marked in grids and the viewer).
@@ -106,10 +167,14 @@ class Db {
     final want = name.toLowerCase();
     var last = 0, removed = 0;
     while (true) {
-      // Cheap text match first (the saved JSON has no spaces); then check the real field, case-insensitive.
-      final rows = await d.rawQuery(
-          'SELECT rowid AS r, id, json FROM posts WHERE source=? AND rowid > ? AND instr(lower(json), ?) > 0 ORDER BY rowid LIMIT ?',
-          [source, last, '"$key":"$want"', chunkRows]);
+      // Indexed column once filled in; before that a cheap text match (the saved JSON has no spaces). Either
+      // way the real field is checked below, case-insensitive.
+      final rows = channelsReady
+          ? await d.rawQuery('SELECT rowid AS r, id, json FROM posts WHERE ${byAuthor ? 'author' : 'sub'}=? AND source=? AND rowid > ? '
+              'ORDER BY rowid LIMIT ?', [want, source, last, chunkRows])
+          : await d.rawQuery(
+              'SELECT rowid AS r, id, json FROM posts WHERE source=? AND rowid > ? AND instr(lower(json), ?) > 0 ORDER BY rowid LIMIT ?',
+              [source, last, '"$key":"$want"', chunkRows]);
       if (rows.isEmpty) break;
       last = rows.last['r'] as int;
       final b = d.batch();
@@ -232,7 +297,7 @@ class Db {
     final d = await db;
     final b = d.batch();
     for (final x in posts) {
-      b.insert('posts', {'source': source, 'id': x.id, 'created': x.created, 'json': x.encode()},
+      b.insert('posts', {'source': source, 'id': x.id, 'created': x.created, 'json': x.encode(), 'author': x.author.toLowerCase(), 'sub': x.subreddit.toLowerCase()},
           conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await b.commit(noResult: true);

@@ -12,6 +12,7 @@ import 'player.dart';
 import 'screen_awake.dart';
 import 'app_lock.dart';
 import 'app_lock_ui.dart';
+import 'db.dart';
 import 'following.dart';
 import 'archive.dart';
 import 'public_sources.dart';
@@ -88,6 +89,9 @@ Future<void> _main() async {
   WidgetsBinding.instance.addPostFrameCallback((_) => Timer(const Duration(seconds: 2), () => sp.setBool('booting', false)));
   AppLifecycleListener(onPause: () => sp.setBool('booting', false), onDetach: () => sp.setBool('booting', false));
   AppLifecycleListener(onPause: AppLock.paused, onResume: AppLock.resumed);
+  // Older saved posts get their user/subreddit lookup columns once the app is up (a few seconds of work, in
+  // small chunks, the first time after the update).
+  Timer(const Duration(seconds: 5), () => _safe('channels', () => Db.backfillChannels()));
 }
 
 /// One failing restore must never stop the app from opening.
