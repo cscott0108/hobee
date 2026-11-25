@@ -133,7 +133,7 @@ void main() {
     await t.pump(const Duration(milliseconds: 400)); // page transition (the loading spinner never settles)
     await settle(t);
     expect(find.byType(SavedGalleryScreen), findsOneWidget);
-    expect(find.textContaining('Nothing saved yet'), findsOneWidget);
+    expect(find.text('Hobees gallery'), findsOneWidget, reason: 'the gallery page is on top');
     await t.pumpWidget(const SizedBox());
   });
 }
