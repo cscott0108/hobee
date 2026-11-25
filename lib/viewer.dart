@@ -102,8 +102,10 @@ class _ViewerState extends State<Viewer> {
     m.showSnackBar(SnackBar(content: Text('Saved $ok/${items.length} to ${saveTo.value == SaveTo.phone ? 'the phone gallery' : 'Hobees gallery'}')));
   }
 
-  Widget _photo(String url, MediaItem it) => PhotoFallback(
+  /// [goneId]: the post to mark gone if every URL answers 404/410, so 'Hide gone images' drops its tile.
+  Widget _photo(String url, MediaItem it, {String? goneId}) => PhotoFallback(
       key: ValueKey('${it.url}|${it.thumb}'),
+      onRemoved: goneId == null ? null : () => MediaCheck.markGone(goneId),
       urls: [url, it.full, it.url, ?it.preview, it.thumb],
       placeholder: it.thumb.startsWith('http') || isLocalPath(it.thumb) ? gridThumbProvider(it.thumb) : null);
 
@@ -169,18 +171,19 @@ class _ViewerState extends State<Viewer> {
             },
             itemBuilder: (_, i) {
               final it = widget.entries[i].item;
+              final gid = widget.local || widget.entries[i].index != 0 ? null : widget.entries[i].post.id;
               if (it.type == MediaType.video) return VideoPage(item: it, active: i == cur);
               if (isDeep(currentSource.value) && !isLocalPath(it.url)) {
                 return FutureBuilder<String?>(
                   future: MediaCheck.resolve(widget.entries[i].post, it),
                   builder: (_, s) => s.connectionState != ConnectionState.done
-                      ? _photo(it.full, it)
+                      ? _photo(it.full, it, goneId: gid)
                       : s.data == null
                           ? const MediaGone()
-                          : _photo(s.data!, it),
+                          : _photo(s.data!, it, goneId: gid),
                 );
               }
-              return _photo(it.full, it);
+              return _photo(it.full, it, goneId: gid);
             },
           ),
           ),
@@ -251,7 +254,9 @@ class PhotoFallback extends StatefulWidget {
   final ImageProvider? placeholder;
   /// Test seam: builds the provider for a URL.
   final ImageProvider Function(String url, int maxPx)? providerFor;
-  const PhotoFallback({super.key, required this.urls, this.placeholder, this.providerFor});
+  /// Called once when every URL answered 404/410 (the picture was deleted).
+  final VoidCallback? onRemoved;
+  const PhotoFallback({super.key, required this.urls, this.placeholder, this.providerFor, this.onRemoved});
   @override
   State<PhotoFallback> createState() => PhotoFallbackState();
 }
@@ -262,6 +267,7 @@ class PhotoFallbackState extends State<PhotoFallback> {
   int _gen = 0; // bumps on retry so a fresh provider/key is used
   /// True once the current full-size URL has decoded.
   bool loaded = false;
+  bool _toldRemoved = false;
   String? _watchKey;
   ImageStream? _stream;
   ImageStreamListener? _listener;
@@ -322,6 +328,11 @@ class PhotoFallbackState extends State<PhotoFallback> {
       failures.add('$u → ${_reason(err)}');
       i++;
     });
+    // Every URL answered 404/410: the picture was deleted (also when the thumbnail still shows).
+    if (i >= us.length && !_toldRemoved && failures.every((f) => f.endsWith('HTTP 404') || f.endsWith('HTTP 410'))) {
+      _toldRemoved = true;
+      widget.onRemoved?.call();
+    }
   }
 
   static String _reason(Object e) {
