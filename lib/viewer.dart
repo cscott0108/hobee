@@ -8,6 +8,8 @@ import 'archive.dart';
 import 'archive_ui.dart';
 import 'clean_image.dart';
 import 'download.dart';
+import 'download_dupes.dart';
+import 'download_dupes_ui.dart';
 import 'downloaded.dart';
 import 'filters.dart';
 import 'following.dart';
@@ -100,8 +102,31 @@ class _ViewerState extends State<Viewer> {
 
   Future<void> _download({bool all = false}) async {
     final e = widget.entries[cur];
-    final items = all ? e.post.media : [e.item];
+    var items = all ? e.post.media : [e.item];
     final m = ScaffoldMessenger.of(context);
+    // Anything that looks like an earlier download is shown side by side first.
+    final dups = <DupMatch?>[];
+    for (final it in items) {
+      DupMatch? d;
+      try {
+        d = await DownloadDupes.find(it);
+      } catch (_) {}
+      dups.add(d);
+    }
+    if (!mounted) return;
+    if (dups.any((d) => d != null)) {
+      if (items.length == 1) {
+        if (!await confirmDuplicate(context, items.single, e.post, dups.single!)) return;
+      } else {
+        final c = await confirmDuplicates(context, [for (var i = 0; i < items.length; i++) if (dups[i] != null) (items[i], dups[i]!)], items.length);
+        if (c == null) return;
+        if (c == DupChoice.skip) items = [for (var i = 0; i < items.length; i++) if (dups[i] == null) items[i]];
+      }
+      if (items.isEmpty) {
+        m.showSnackBar(const SnackBar(content: Text('Nothing new to download')));
+        return;
+      }
+    }
     m.showSnackBar(SnackBar(content: Text('Downloading ${items.length} item(s)…')));
     var ok = 0;
     for (final it in items) {

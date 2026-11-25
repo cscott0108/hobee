@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'download_dupes.dart';
 import 'gallery_backup.dart';
 import 'gallery_export.dart';
 import 'masonry.dart';
@@ -58,7 +59,15 @@ class _SavedGalleryScreenState extends State<SavedGalleryScreen> {
     SavedStore.changes.addListener(_load);
     originalShapeGrid.addListener(_shape);
     _load();
+    // Files saved before downloads remembered their fingerprint get one (once per session), so they count in
+    // the duplicate check too.
+    if (!_fingerprinted) {
+      _fingerprinted = true;
+      DownloadDupes.fillGallery().ignore();
+    }
   }
+
+  static bool _fingerprinted = false;
 
   void _shape() => setState(() {});
 

@@ -9,6 +9,8 @@ import 'clean_image.dart';
 import 'embeds.dart';
 import 'models.dart';
 import 'saved.dart';
+import 'db.dart';
+import 'download_dupes.dart';
 import 'downloaded.dart';
 
 const _ch = MethodChannel('hobee/media');
@@ -62,7 +64,16 @@ class Downloader {
   static Future<String> save(MediaItem m, Post post, {int? profile}) async {
     final (file, ext, mime, video) = await _prepare(m);
     final r = await store(file, ext: ext, mime: mime, video: video, item: m, post: post, profile: profile);
-    await Downloaded.mark(m.url, post.id);
+    // Remember what it looked like, so a later download of the same picture can be flagged.
+    int? hash;
+    try {
+      hash = m.thumb.isEmpty ? null : await DownloadDupes.hashOf(m.thumb);
+    } catch (_) {}
+    final saved = saveTo.value == SaveTo.hobees ? r : null;
+    if (saved != null && hash != null) {
+      await (await Db.db).update('saved', {'hash': hash}, where: 'path=?', whereArgs: [saved]);
+    }
+    await Downloaded.mark(m.url, post.id, post: post, hash: hash, thumb: m.thumb.isEmpty ? null : m.thumb, savedPath: saved);
     return r;
   }
 
