@@ -68,6 +68,22 @@ double sectionOffset(List<List<double>> aspects, int s, int cols, double width, 
   return off;
 }
 
+/// Where the view is: the tile at or just above [offset] and how far below its top the view starts.
+/// Saved when you leave a feed, so coming back puts you on the same tile even if newer posts came in above.
+({String key, double delta})? scrollPlace(Map<String, double> tops, double offset) {
+  if (offset <= 0) return null;
+  String? best;
+  var bestTop = double.negativeInfinity;
+  tops.forEach((k, y) {
+    if (y <= offset && y > bestTop) {
+      best = k;
+      bestTop = y;
+    }
+  });
+  final b = best;
+  return b == null ? null : (key: b, delta: offset - bestTop);
+}
+
 /// Keep the view on the same item when items above it disappear or move: take the first item at or below
 /// the current offset that is still shown (or the last one above it) and shift by how far it moved.
 double anchoredOffset(double offset, Map<String, double> oldTops, Map<String, double> newTops) {

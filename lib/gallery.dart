@@ -60,6 +60,43 @@ class _GalleryScreenState extends State<GalleryScreen> {
   bool _active = true;
   String? _loaded;
 
+  /// Where you were in each feed this session (by tile, not pixels), so Back from a subreddit, a user or the
+  /// viewer puts you where you left off instead of at the top.
+  static final _places = <String, ({String key, double delta})>{};
+  Timer? _placeT;
+
+  void _savePlace() {
+    final src = _loaded;
+    if (src == null || !mounted || !sc.hasClients || entries.isEmpty) return;
+    final w = context.size?.width;
+    if (w == null) return;
+    final p = scrollPlace(_tops(sections, entries, _square, w), sc.offset);
+    if (p == null) {
+      _places.remove(src);
+    } else {
+      _places[src] = p;
+    }
+  }
+
+  /// Scroll back to the saved tile, loading older chunks of a big feed until it's there.
+  Future<void> _restorePlace(String src) async {
+    final p = _places[src];
+    if (p == null) return;
+    for (var i = 0; i < 30; i++) {
+      if (!mounted || src != effectiveSource()) return;
+      final w = context.size?.width ?? MediaQuery.sizeOf(context).width;
+      final y = _tops(sections, entries, _square, w)[p.key];
+      if (y != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && sc.hasClients) sc.jumpTo((y + p.delta).clamp(0.0, sc.position.maxScrollExtent));
+        });
+        return;
+      }
+      if (!_dbMore) return;
+      await _growDb();
+    }
+  }
+
   // Big feeds open as a window of the newest posts (Db.windowStep); scrolling near the end loads the next
   // chunk from the database before asking the network. Search and date ranges read the whole feed.
   bool _windowed = false, _dbMore = false, _dbLoading = false;
@@ -95,6 +132,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
     Viewed.hide.addListener(_viewedChanged);
     sc.addListener(() {
       if (sc.position.pixels > sc.position.maxScrollExtent - 1200) _more();
+      _placeT?.cancel();
+      _placeT = Timer(const Duration(milliseconds: 400), _savePlace);
     });
     _switch();
   }
@@ -102,6 +141,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   @override
   void dispose() {
     _retryT?.cancel();
+    _placeT?.cancel();
     currentSource.removeListener(_switch);
     subSort.removeListener(_switchSort);
     viewFilters.removeListener(_rebuildSoon);
@@ -154,6 +194,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
       _rebuild();
       return;
     }
+    _savePlace(); // the feed being left
     _loaded = src;
     _bg = 0;
     _bgStart = DateTime.now();
@@ -164,6 +205,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     } finally {
       if (mounted) setState(() => _dbLoading = false);
     }
+    await _restorePlace(src);
     final (_, d) = await Db.cursor(src);
     if (!mounted || src != effectiveSource()) return;
     setState(() => done = d);
