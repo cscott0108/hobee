@@ -57,6 +57,9 @@ dependencies:
   local_auth: 3.0.2
   # Share saved gallery items through the Android share sheet (Phase 6). Pinned to a release older than two weeks.
   share_plus: 13.3.1
+  # Hobees' own network helper (Wi-Fi safety, Phase 5b), in this repo.
+  hobee_net:
+    path: packages/hobee_net
 dev_dependencies:
   flutter_launcher_icons: ^0.14.1
   flutter_test:

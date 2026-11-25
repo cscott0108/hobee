@@ -1,0 +1,19 @@
+name: hobee_net
+description: "Hobees' own Android network helper: which network the phone is on, network changes, and routing the app over mobile data."
+version: 0.0.1
+publish_to: 'none'
+
+environment:
+  sdk: ^3.13.7
+  flutter: ">=3.44.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: io.github.cscott0108.hobee_net
+        pluginClass: HobeeNetPlugin
