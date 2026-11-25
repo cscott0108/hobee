@@ -93,11 +93,13 @@ void main() {
     Following.budget = 10;
     await Following.fetchMore(src, now: t0);
     fake.calls.clear();
+    Following.forceFull(src); // pull-to-refresh
     await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(minutes: 10)));
     expect(fake.calls, isEmpty, reason: 'nothing to refresh within 30 minutes, and everything older is already loaded');
     fake.calls.clear();
     fake.times['r/aa'] = [130, ...fake.times['r/aa']!];
     Following.debugReset();
+    Following.forceFull(src);
     await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(minutes: 31)));
     expect(fake.calls, contains('r/aa after=100 before=null'));
     expect(fake.calls, contains('u/ddd after=99 before=null'));
@@ -123,6 +125,7 @@ void main() {
     };
     await Following.fetchMore(src, now: t0);
     Following.debugReset();
+    Following.forceFull(src);
     await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(hours: 1)));
     expect(sizes, isNotEmpty);
     expect(sizes.every((s) => s == 1), isTrue);
@@ -249,5 +252,43 @@ void main() {
     expect(await BackgroundRefresh.run(), isTrue);
     expect(followingStatus.value, startsWith('All 4 checked'));
     expect(await posts(), greaterThan(0));
+  });
+
+  test('rest between checks is learned from how active an entry is', () {
+    final now = t0.millisecondsSinceEpoch;
+    int ago(Duration d) => (now - d.inMilliseconds) ~/ 1000;
+    expect(Following.recheckAfter(FollowState(), now), const Duration(minutes: 30), reason: 'never seen: soon');
+    expect(Following.recheckAfter(FollowState(newest: ago(const Duration(hours: 3))), now), const Duration(minutes: 30));
+    expect(Following.recheckAfter(FollowState(newest: ago(const Duration(days: 3))), now), const Duration(hours: 2));
+    expect(Following.recheckAfter(FollowState(newest: ago(const Duration(days: 40))), now), const Duration(hours: 12));
+    // An active entry that keeps coming back empty rests longer each time.
+    final busy = ago(const Duration(hours: 1));
+    expect(Following.recheckAfter(FollowState(newest: busy, quiet: 1), now), const Duration(hours: 1));
+    expect(Following.recheckAfter(FollowState(newest: busy, quiet: 3), now), const Duration(hours: 4));
+    expect(Following.recheckAfter(FollowState(newest: busy, quiet: 9), now), const Duration(hours: 12));
+  });
+
+  test('opening the feed checks only entries that are due; a pull checks all but the just-checked', () async {
+    Following.budget = 10;
+    // Posts from t0 minus a few hours for aa, months-old for the rest.
+    final recent = t0.millisecondsSinceEpoch ~/ 1000 - 3 * 3600;
+    fake.times['r/aa'] = [recent, recent - 60];
+    await Following.fetchMore(src, now: t0);
+    Following.debugReset();
+    fake.calls.clear();
+    await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(minutes: 45)));
+    expect(fake.calls.where((c) => c.contains('before=null')), ['r/aa after=$recent before=null'],
+        reason: 'only the active subreddit is due after 45 minutes');
+    Following.debugReset();
+    fake.calls.clear();
+    Following.forceFull(src);
+    await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(minutes: 50)));
+    expect(fake.calls.where((c) => c.contains('before=null')).length, 3, reason: 'aa was checked 5 minutes ago; the other 3 are checked');
+  });
+
+  test('checks that find nothing new add up and survive a restart', () async {
+    final s = FollowState(newest: 5, quiet: 2);
+    expect(FollowState.decode(s.encode()).quiet, 2);
+    expect(FollowState.decode(FollowState().encode()).quiet, 0);
   });
 }

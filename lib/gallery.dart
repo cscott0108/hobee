@@ -606,7 +606,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
       backgroundColor: Colors.transparent,
       extendBody: true,
       body: RefreshIndicator(
-        onRefresh: _refreshTop,
+        onRefresh: () {
+          // Pulling down on a Following list checks every entry, not just the ones due.
+          if (isFollowing(effectiveSource())) Following.forceFull(effectiveSource());
+          return _refreshTop();
+        },
         child: CustomScrollView(
           controller: sc,
           // Build (and so start loading) about two screens of tiles ahead of the viewport.
