@@ -69,6 +69,7 @@ Future<void> _main() async {
   await _safe('follows', FollowStore.load);
   await _safe('downloads', Downloaded.load);
   await _safe('background', BackgroundRefresh.load);
+  await _safe('followPace', Following.loadPrefs);
   // Older builds saved suggestion filter choices; they are gone now, so drop the key.
   await _safe('suggest', () async => sp.remove('suggestPrefs'));
   await _safe('video', VideoPrefs.load);

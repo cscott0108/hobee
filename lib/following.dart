@@ -86,12 +86,30 @@ class Following {
   static int fillPosts = 500;
   /// Fill-back pages per entry per round (a guard: failed pages count too, so errors can't loop).
   static int fillPages = 10;
-  /// Arctic Shift answers "slow down" (HTTP 422) at about one request a second, so the feed adapts: it starts
-  /// at [minGap] between its requests, doubles the gap (up to [maxGap]) after every slow-down and eases back
-  /// towards [minGap] after each success. It runs at whatever pace the archive allows from this network.
-  static Duration minGap = const Duration(seconds: 3);
+  /// Arctic Shift sets its limits by server load (its guide: "a couple requests per second" is fine) and answers
+  /// "slow down" (HTTP 422) when busy, so the feed adapts: it starts at [minGap] between its requests, doubles
+  /// the gap (up to [maxGap]) after every slow-down and eases back towards [minGap] after each success.
+  static Duration minGap = const Duration(milliseconds: 1200);
   static Duration maxGap = const Duration(seconds: 15);
-  static Duration gap = const Duration(seconds: 3);
+  static Duration gap = const Duration(milliseconds: 1200);
+
+  /// Settings: two archive requests in flight at once (off by default). Drops back to one for two minutes
+  /// after any slow-down.
+  static final twoAtATime = ValueNotifier<bool>(false);
+  static const _twoKey = 'followTwoAtATime';
+  static DateTime _slowUntil = DateTime.fromMillisecondsSinceEpoch(0);
+
+  static Future<void> loadPrefs() async {
+    twoAtATime.value = (await SharedPreferences.getInstance()).getBool(_twoKey) ?? false;
+  }
+
+  static Future<void> setTwoAtATime(bool on) async {
+    twoAtATime.value = on;
+    await (await SharedPreferences.getInstance()).setBool(_twoKey, on);
+  }
+
+  /// Requests in flight per batch right now.
+  static int get inFlight => twoAtATime.value && DateTime.now().isAfter(_slowUntil) ? 2 : 1;
   static DateTime? _last;
 
   /// Next gap after a request: doubled after a slow-down, 20 % shorter after a success, within the limits.
@@ -216,7 +234,10 @@ class Following {
       gap = nextGap(gap, busy: false);
       return r;
     } catch (e) {
-      if (_busy(e)) gap = nextGap(gap, busy: true);
+      if (_busy(e)) {
+        gap = nextGap(gap, busy: true);
+        _slowUntil = DateTime.now().add(const Duration(minutes: 2));
+      }
       rethrow;
     } finally {
       _last = DateTime.now();
@@ -314,11 +335,9 @@ class Following {
       }
     }
 
-    // 1) refresh: newest posts first
-    while (queue.isNotEmpty && used < budget) {
-      final f = queue.removeAt(0);
+    // 1) refresh: newest posts first (one at a time, or two side by side when that setting is on)
+    Future<void> refreshOne(Follow f) async {
       final s = states[f]!;
-      used++;
       try {
         final rows = await _paced(f, after: s.newest, limit: s.newest == null ? pageSize : refreshSize);
         await save(f, rows);
@@ -349,6 +368,16 @@ class Following {
         }
       }
       status();
+    }
+
+    while (queue.isNotEmpty && used < budget) {
+      final batch = <Follow>[];
+      final n = inFlight;
+      while (batch.length < n && queue.isNotEmpty && used < budget) {
+        batch.add(queue.removeAt(0));
+        used++;
+      }
+      await Future.wait(batch.map(refreshOne));
     }
 
     // 2) fill-back to the window, then 3) page back on scroll: entries with the newest unexplored history
@@ -400,6 +429,7 @@ class Following {
   static void debugReset() {
     _round.clear();
     _force.clear();
+    _slowUntil = DateTime.fromMillisecondsSinceEpoch(0);
     _checked.clear();
     _retried.clear();
     _filled.clear();

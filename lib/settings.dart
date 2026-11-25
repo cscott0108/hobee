@@ -1,4 +1,5 @@
 import 'background.dart';
+import 'following.dart';
 import 'follows_ui.dart';
 import 'dedupe.dart';
 import 'masonry.dart';
@@ -260,6 +261,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ]),
+        ),
+        ValueListenableBuilder(
+          valueListenable: Following.twoAtATime,
+          builder: (_, on, _) => SwitchListTile(
+            key: const Key('two-at-a-time'),
+            secondary: const Icon(Icons.speed),
+            title: const Text('Faster Following updates'),
+            subtitle: const Text('Asks the archive for two lists at once. Goes back to one at a time for a while whenever the archive says to slow down.'),
+            value: on,
+            onChanged: Following.setTwoAtATime,
+          ),
         ),
         ListTile(
           leading: const Icon(Icons.playlist_add_check),

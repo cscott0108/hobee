@@ -159,9 +159,33 @@ class Archive {
     }
   }
 
+  /// After a 429 every request to that host waits until the reset time the server gave.
+  static final Map<String, DateTime> _holdUntil = {};
+
+  /// The reset time from a 429's headers: `x-ratelimit-reset-at` (ms since epoch) or `x-ratelimit-reset`
+  /// (seconds from now), capped at [cap]; null when neither is usable.
+  @visibleForTesting
+  static DateTime? resetTime(Map<String, String> headers, {DateTime? now, Duration cap = const Duration(seconds: 60)}) {
+    final n = now ?? DateTime.now();
+    DateTime? t;
+    final at = int.tryParse(headers['x-ratelimit-reset-at'] ?? '');
+    if (at != null) t = DateTime.fromMillisecondsSinceEpoch(at);
+    final secs = int.tryParse(headers['x-ratelimit-reset'] ?? '');
+    if (t == null && secs != null) t = n.add(Duration(seconds: secs));
+    if (t == null) return null;
+    if (t.isBefore(n)) return n;
+    final max = n.add(cap);
+    return t.isAfter(max) ? max : t;
+  }
+
   static Future<void> _paceInOrder(String host) {
     final prev = _gate[host] ?? Future<void>.value();
     final mine = prev.then((_) async {
+      final hold = _holdUntil[host];
+      if (hold != null) {
+        final w = hold.difference(DateTime.now());
+        if (!w.isNegative) await Future.delayed(w);
+      }
       final l = _last[host];
       if (l != null) {
         final wait = const Duration(milliseconds: 1100) - DateTime.now().difference(l);
@@ -197,12 +221,13 @@ class Archive {
         throw _Unavailable('network error', '$e');
       }
       final ct = r.headers['content-type'] ?? '';
-      if (r.statusCode == 429 && (retry429 || retries > 0) && !last) {
-        // Respect the server's reset hint (seconds); cap the wait.
-        final reset = int.tryParse(r.headers['x-ratelimit-reset'] ?? '') ?? backoff().inSeconds;
-        await Future.delayed(Duration(seconds: reset.clamp(1, 15)));
-        continue;
+      if (r.statusCode == 429) {
+        // Every request to this host waits until the server's reset time (not just this one).
+        final until = resetTime(r.headers) ?? DateTime.now().add(backoff());
+        final h = _holdUntil[u.host];
+        if (h == null || until.isAfter(h)) _holdUntil[u.host] = until;
       }
+      if (r.statusCode == 429 && (retry429 || retries > 0) && !last) continue; // the next try waits for the reset
       if (r.statusCode >= 500 && retries > 0 && !last) { await Future.delayed(backoff()); continue; }
       if (isSlowDown(r.statusCode, r.body)) {
         if (!last && retrySlow) { await Future.delayed(backoff()); continue; }

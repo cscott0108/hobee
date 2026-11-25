@@ -291,4 +291,36 @@ void main() {
     expect(FollowState.decode(s.encode()).quiet, 2);
     expect(FollowState.decode(FollowState().encode()).quiet, 0);
   });
+
+  test('two at a time when the setting is on; back to one after a slow-down', () async {
+    Following.budget = 10;
+    var now = 0, peak = 0;
+    Future<List<Map<String, dynamic>>> page(f, {int? after, int? before, int limit = 100}) async {
+      now++;
+      if (now > peak) peak = now;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      now--;
+      return fake.page(f, after: after, before: before, limit: limit);
+    }
+
+    Following.fetchPage = page;
+    await Following.fetchMore(src, now: t0);
+    expect(peak, 1, reason: 'one at a time by default');
+
+    Following.debugReset();
+    await Following.setTwoAtATime(true);
+    peak = 0;
+    Following.forceFull(src);
+    await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(hours: 1)));
+    expect(peak, 2);
+
+    // The archive says slow down: one at a time again for a while.
+    Following.debugReset();
+    await Following.setTwoAtATime(true);
+    Following.fetchPage = (f, {int? after, int? before, int limit = 100}) async => throw Exception('Timeout. Maybe slow down a bit');
+    Following.forceFull(src);
+    await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(hours: 2)));
+    expect(Following.inFlight, 1);
+    await Following.setTwoAtATime(false);
+  });
 }
