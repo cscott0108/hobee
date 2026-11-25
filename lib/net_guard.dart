@@ -171,8 +171,13 @@ class NetGuard {
     }
   }
 
-  /// Re-reads the network and applies the decision (pause, mobile data or allow).
-  static Future<void> refresh() async {
+  static Future<void> _queue = Future.value();
+
+  /// Re-reads the network and applies the decision (pause, mobile data or allow). One at a time, so a network
+  /// change arriving while mobile data is being set up can't undo it.
+  static Future<void> refresh() => _queue = _queue.then((_) => _refresh()).catchError((Object e) => debugPrint('net: $e'));
+
+  static Future<void> _refresh() async {
     final net = await read();
     if (_once != null && !_once!.same(net)) _once = null; // left the network: "Use once" ends
     current.value = net;
