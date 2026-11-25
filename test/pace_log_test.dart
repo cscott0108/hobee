@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hobee/db.dart';
 import 'package:hobee/pace_log.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
