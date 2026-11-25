@@ -313,6 +313,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: (v) => HideGestures.flip.value = v,
                 ),
               ),
+            if ((sensors['accelerometer'] ?? true))
+              _HideDelay(key: const Key('hide-flip-delay'), on: HideGestures.flip, tenths: HideGestures.flipTenths, what: 'Face down for'),
             if (sensors['light'] ?? true)
               ValueListenableBuilder(
                 valueListenable: HideGestures.dark,
@@ -321,12 +323,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   secondary: const Icon(Icons.dark_mode_outlined),
                   title: const Text('Hide when covered and dark'),
                   subtitle: Text((sensors['proximity'] ?? true)
-                      ? 'In a pocket or under your hand for 2 seconds (dark and something close to the screen), not just a dim room.'
-                      : 'When the light sensor reads almost no light for 2 seconds.'),
+                      ? 'In a pocket or under your hand (dark and something close to the screen), not just a dim room.'
+                      : 'When the light sensor reads almost no light.'),
                   value: on,
                   onChanged: (v) => HideGestures.dark.value = v,
                 ),
               ),
+            if ((sensors['light'] ?? true))
+              _HideDelay(key: const Key('hide-dark-delay'), on: HideGestures.dark, tenths: HideGestures.darkTenths, what: 'Covered and dark for'),
           ]),
         ),
         const NetworkSettingsTile(),
@@ -543,4 +547,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ]),
     );
   }
+}
+
+/// How long a hide gesture must last before Hobees hides: 0.1 to 1.0 s in 0.1 s steps (shown while it's on).
+class _HideDelay extends StatelessWidget {
+  final ValueNotifier<bool> on;
+  final ValueNotifier<int> tenths;
+  final String what;
+  const _HideDelay({super.key, required this.on, required this.tenths, required this.what});
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Listenable.merge([on, tenths]),
+        builder: (_, _) => !on.value
+            ? const SizedBox.shrink()
+            : Padding(
+                padding: const EdgeInsets.only(left: 72, right: 16),
+                child: Row(children: [
+                  Text('$what ${(tenths.value / 10).toStringAsFixed(1)} s', style: const TextStyle(fontSize: 13)),
+                  Expanded(
+                    child: Slider(
+                      value: tenths.value.toDouble(), min: 1, max: 10, divisions: 9,
+                      label: '${(tenths.value / 10).toStringAsFixed(1)} s',
+                      onChanged: (v) => tenths.value = v.round(),
+                    ),
+                  ),
+                ]),
+              ),
+      );
 }

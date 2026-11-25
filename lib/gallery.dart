@@ -1,4 +1,6 @@
 import 'following.dart';
+import 'pace_log.dart';
+import 'tile_image.dart';
 import 'follows.dart';
 import 'age.dart';
 import 'saved_ui.dart';
@@ -66,6 +68,26 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// Where you were in each feed this session (by tile, not pixels), so Back from a subreddit, a user or the
   /// viewer puts you where you left off instead of at the top.
   static final _places = <String, ({String key, double delta})>{};
+  static final _placeAt = <String, int>{}; // created_utc of the saved place's post
+
+  /// Loading that runs on its own (not from you scrolling or tapping Load more) stops at this many posts.
+  static const autoLimit = 3000;
+  DateTime _lastDrag = DateTime.fromMillisecondsSinceEpoch(0);
+  bool get _youScrolled => DateTime.now().difference(_lastDrag) < const Duration(seconds: 3);
+
+  /// What kind of feed (never a user or subreddit name), for the pace log.
+  static String _kind(String? src) {
+    if (src == null) return 'none';
+    final i = src.indexOf(':');
+    if (i > 0) return src.substring(0, i);
+    if (src.startsWith('r/')) return 'sub';
+    if (src.startsWith('u/')) return 'user';
+    return src.split('|').first;
+  }
+
+  void _gridLog(String what, [String extra = '']) => PaceLog.marker('grid_$what',
+          'feed=${_kind(_loaded)};posts=${_all.length};shown=${entries.length};cap=$_cap;you_scrolled=$_youScrolled${extra.isEmpty ? '' : ';$extra'}')
+      .ignore();
   Timer? _placeT;
 
   void _savePlace() {
@@ -76,8 +98,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
     final p = scrollPlace(_tops(sections, entries, _square, w), sc.offset);
     if (p == null) {
       _places.remove(src);
+      _placeAt.remove(src);
     } else {
       _places[src] = p;
+      final e = entries.where((x) => '${x.post.id}#${x.index}' == p.key).firstOrNull;
+      if (e != null) _placeAt[src] = e.post.created;
     }
   }
 
@@ -85,14 +110,23 @@ class _GalleryScreenState extends State<GalleryScreen> {
   Future<void> _restorePlace(String src) async {
     final p = _places[src];
     if (p == null) return;
+    final at = _placeAt[src];
     for (var i = 0; i < 30; i++) {
       if (!mounted || src != effectiveSource()) return;
       final w = context.size?.width ?? MediaQuery.sizeOf(context).width;
       final y = _tops(sections, entries, _square, w)[p.key];
       if (y != null) {
+        _gridLog('restore', 'found_after=$i');
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && sc.hasClients) sc.jumpTo((y + p.delta).clamp(0.0, sc.position.maxScrollExtent));
         });
+        return;
+      }
+      // The saved tile is gone (hidden, folded into a block, removed) once what's loaded reaches back past its
+      // date; never load a big feed just to look for it.
+      final passed = at != null && _all.isNotEmpty && _all.last.created <= at;
+      if (passed || _all.length >= autoLimit) {
+        _gridLog('restore', 'not_found_after=$i;passed_its_date=$passed');
         return;
       }
       if (_capMore) {
@@ -225,7 +259,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
       return;
     }
     _savePlace(); // the feed being left
+    final from = _kind(_loaded);
     _loaded = src;
+    // Start the new feed at the top: an offset left from a long feed could sit past this one's end and keep
+    // 'load more' firing. The saved place (if any) is restored below.
+    if (sc.hasClients && sc.offset > 0) sc.jumpTo(0);
+    _gridLog('switch', 'from=$from');
     _bg = 0;
     _bgStart = DateTime.now();
     // Reading a big feed takes a moment: show the spinner, not the empty "Try again" footer.
@@ -311,6 +350,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// Next chunk of a windowed feed from the database (no network).
   Future<void> _growDb() async {
     if (_dbLoading) return;
+    _gridLog('grow_db');
     setState(() => _dbLoading = true);
     try {
       await _fromDb(grow: true);
@@ -468,8 +508,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
   Timer? _retryT;
   int _noGrow = 0; // auto-loads in a row that added nothing visible; stop after a few until the user scrolls
   int _auto = 0;
-  Future<void> _more({bool auto = false}) async {
+  Future<void> _more({bool auto = false, bool tapped = false}) async {
+    // Runaway guard: past [autoLimit] posts, more only loads while you're scrolling (or you tap Load more).
+    if (!tapped && !_youScrolled && (_all.length >= autoLimit || _cap >= autoLimit)) {
+      _gridLog('hold');
+      return;
+    }
     if (_capMore) {
+      _gridLog('grow_shown', 'to=${_cap + resultStep}');
       // The next posts are already loaded: just show more of them (once per frame).
       if (_capBusy) return;
       _capBusy = true;
@@ -662,7 +708,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
           if (isFollowing(effectiveSource())) Following.forceFull(effectiveSource());
           return _refreshTop();
         },
-        child: CustomScrollView(
+        child: NotificationListener<UserScrollNotification>(
+          onNotification: (_) {
+            _lastDrag = DateTime.now();
+            return false;
+          },
+          child: CustomScrollView(
           controller: sc,
           // Build (and so start loading) about two screens of tiles ahead of the viewport.
           scrollCacheExtent: const ScrollCacheExtent.pixels(1600),
@@ -770,18 +821,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
                           if (deep)
                             ArchiveImage(key: ValueKey(e.item.thumb), post: e.post, item: e.item, cacheWidth: 360, deep: true)
                           else
-                          e.item.thumb.isEmpty
-                              ? Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.movie))
-                              : Image.network(e.item.thumb, fit: BoxFit.cover, cacheWidth: 360, gaplessPlayback: true,
-                                  semanticLabel: e.post.title,
-                                  frameBuilder: (_, child, frame, sync) => sync ? child : AnimatedOpacity(opacity: frame == null ? 0 : 1, duration: const Duration(milliseconds: 180), child: child),
-                                  errorBuilder: (_, err, _) {
-                                    // Deleted picture (404/410): 'Hide gone images' drops the tile, as in Deep Search.
-                                    if (e.index == 0 && isGoneError(err)) {
-                                      WidgetsBinding.instance.addPostFrameCallback((_) => MediaCheck.markGone(e.post.id));
-                                    }
-                                    return Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.broken_image));
-                                  }),
+                            // Preview, resized copy, then the original at tile size (as the viewer does). Only when every
+                            // one is deleted (404/410) does 'Hide gone images' drop the tile.
+                            TileImage(
+                              urls: tileUrls(e.item),
+                              label: e.post.title,
+                              onGone: e.index == 0 ? () => MediaCheck.markGone(e.post.id) : null,
+                            ),
                           // Bottom left: where the post came from (mixed feeds only), then the author or archive status.
                           // In a framed block the header names the user and subreddit once for all its pictures.
                           if (deep || (e.index == 0 && !grouped))
@@ -841,7 +887,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 checkedTo: isSubSearch(effectiveSource()) ? oldestLabel(_all) : null,
                 widerLabel: widerQuery(effectiveSource(), searchQuery.value) == null ? null : 'Search all of r/${subParts(effectiveSource()).sub} for "${searchQuery.value.trim()}"',
                 onWider: () => searchWider(effectiveSource()),
-                onMore: _more,
+                onMore: () => _more(tapped: true),
                 doneChild: entries.isEmpty && textish && _all.any((p) => p.media.isEmpty)
                     ? TextButton.icon(onPressed: () => applyLayout(PostLayout.card), icon: const Icon(Icons.view_agenda_outlined), label: const Text('Text posts show in Card / Compact layout'))
                     : Text(entries.isEmpty ? (_all.isEmpty ? (deep ? 'No archived posts' : 'No media here') : (_all.every((p) => p.media.isEmpty) ? 'All posts are text, no media' : 'Nothing matches these filters')) : 'No more posts', textAlign: TextAlign.center),
@@ -849,6 +895,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
             ),
             SliverToBoxAdapter(child: SizedBox(height: MediaQuery.paddingOf(context).bottom + 4)),
           ],
+        ),
         ),
       ),
     );

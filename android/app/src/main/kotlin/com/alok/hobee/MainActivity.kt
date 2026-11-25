@@ -39,6 +39,8 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
     private var hideChannel: MethodChannel? = null
     private var hideFlip = false
     private var hideDark = false
+    private var flipMs = 500L
+    private var darkMs = 1000L
     private var hidden = false // already asked to hide since the last resume
     private var faceDownSince = 0L
     private var darkSince = 0L
@@ -79,7 +81,7 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
                 // Screen facing the table: gravity pulls along -z, the phone lies flat.
                 val down = e.values[2] < -8.0f && kotlin.math.abs(e.values[0]) < 2.5f && kotlin.math.abs(e.values[1]) < 2.5f
                 faceDownSince = if (down) (if (faceDownSince == 0L) now else faceDownSince) else 0L
-                if (faceDownSince != 0L && now - faceDownSince >= 800) hide("flip")
+                if (faceDownSince != 0L && now - faceDownSince >= flipMs) hide("flip")
             }
             Sensor.TYPE_LIGHT -> lux = e.values[0]
             Sensor.TYPE_PROXIMITY -> near = e.values[0] < kotlin.math.min(e.sensor.maximumRange, 5f)
@@ -90,13 +92,14 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
             val dark = lux < 3f && (near || !hasProximity && lux < 1f)
             darkSince = if (dark) (if (darkSince == 0L) now else darkSince) else 0L
         }
-        if (hideDark && darkSince != 0L && now - darkSince >= 2000) hide("dark")
+        if (hideDark && darkSince != 0L && now - darkSince >= darkMs) hide("dark")
     }
 
     private fun hide(why: String) {
         hidden = true
-        // Dart locks the app (when the lock is on), then asks to go to the background.
+        // Straight to the background; Dart locks the app (when the lock is on) at the same moment.
         hideChannel?.invokeMethod("hide", why)
+        moveTaskToBack(true)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -107,6 +110,8 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
                     "configure" -> {
                         hideFlip = call.argument<Boolean>("flip") ?: false
                         hideDark = call.argument<Boolean>("dark") ?: false
+                        flipMs = (call.argument<Int>("flipMs") ?: 500).toLong()
+                        darkMs = (call.argument<Int>("darkMs") ?: 1000).toLong()
                         if (hideFlip || hideDark) startSensors() else sensorManager.unregisterListener(this@MainActivity)
                         result.success(null)
                     }
