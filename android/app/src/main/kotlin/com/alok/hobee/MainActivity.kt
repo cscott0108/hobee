@@ -1,6 +1,11 @@
 package com.alok.hobee
 
 import android.content.ContentValues
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.graphics.Bitmap
 import android.media.MediaCodec
 import android.media.MediaMetadataRetriever
@@ -29,9 +34,94 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 // FragmentActivity: the fingerprint / face prompt (local_auth) needs it.
-class MainActivity : FlutterFragmentActivity() {
+class MainActivity : FlutterFragmentActivity(), SensorEventListener {
+    // Settings -> Hide Hobees: flip face down, or covered and dark. Sensors are read only while Hobees is on screen.
+    private var hideChannel: MethodChannel? = null
+    private var hideFlip = false
+    private var hideDark = false
+    private var hidden = false // already asked to hide since the last resume
+    private var faceDownSince = 0L
+    private var darkSince = 0L
+    private var lux = Float.MAX_VALUE
+    private var near = false
+    private val sensorManager by lazy { getSystemService(Context.SENSOR_SERVICE) as SensorManager }
+
+    private fun startSensors() {
+        sensorManager.unregisterListener(this)
+        faceDownSince = 0L; darkSince = 0L; lux = Float.MAX_VALUE; near = false
+        if (hideFlip) sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        }
+        if (hideDark) {
+            sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+            sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        hidden = false
+        if (hideFlip || hideDark) startSensors()
+    }
+
+    override fun onPause() {
+        sensorManager.unregisterListener(this)
+        super.onPause()
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    override fun onSensorChanged(e: SensorEvent) {
+        if (hidden) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        when (e.sensor.type) {
+            Sensor.TYPE_ACCELEROMETER -> {
+                // Screen facing the table: gravity pulls along -z, the phone lies flat.
+                val down = e.values[2] < -8.0f && kotlin.math.abs(e.values[0]) < 2.5f && kotlin.math.abs(e.values[1]) < 2.5f
+                faceDownSince = if (down) (if (faceDownSince == 0L) now else faceDownSince) else 0L
+                if (faceDownSince != 0L && now - faceDownSince >= 800) hide("flip")
+            }
+            Sensor.TYPE_LIGHT -> lux = e.values[0]
+            Sensor.TYPE_PROXIMITY -> near = e.values[0] < kotlin.math.min(e.sensor.maximumRange, 5f)
+        }
+        if (hideDark && e.sensor.type != Sensor.TYPE_ACCELEROMETER) {
+            val hasProximity = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY) != null
+            // Covered and dark (a pocket, a hand over it), not just a dim room.
+            val dark = lux < 3f && (near || !hasProximity && lux < 1f)
+            darkSince = if (dark) (if (darkSince == 0L) now else darkSince) else 0L
+        }
+        if (hideDark && darkSince != 0L && now - darkSince >= 2000) hide("dark")
+    }
+
+    private fun hide(why: String) {
+        hidden = true
+        // Dart locks the app (when the lock is on), then asks to go to the background.
+        hideChannel?.invokeMethod("hide", why)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        hideChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/hide").apply {
+            setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "configure" -> {
+                        hideFlip = call.argument<Boolean>("flip") ?: false
+                        hideDark = call.argument<Boolean>("dark") ?: false
+                        if (hideFlip || hideDark) startSensors() else sensorManager.unregisterListener(this@MainActivity)
+                        result.success(null)
+                    }
+                    "sensors" -> result.success(mapOf(
+                        "accelerometer" to (sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null),
+                        "light" to (sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT) != null),
+                        "proximity" to (sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY) != null)))
+                    "moveToBack" -> {
+                        moveTaskToBack(true)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         // App lock's "Hide in recent apps": FLAG_SECURE blanks the app-switcher preview and blocks screenshots.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/window").setMethodCallHandler { call, result ->
             if (call.method == "secure") {

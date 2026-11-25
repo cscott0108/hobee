@@ -160,6 +160,22 @@ class AppLock {
   /// App went to the background.
   static void paused() => _leftAt ??= clock();
 
+  /// Lock right away (Hide Hobees): the whole app when the lock is on, else a locked list that's on screen.
+  static void lockNow() {
+    if (enabled.value) {
+      if (!locked.value) lock();
+      return;
+    }
+    final p = viewingProfile();
+    _openProfiles.clear();
+    if (p != null && lockedProfiles.value.contains(p)) {
+      reason = 'Unlock this list';
+      cancellable = false;
+      _appLock = false;
+      locked.value = true;
+    }
+  }
+
   /// App came back: lock if it was away at least [afterSeconds].
   static void resumed() {
     final left = _leftAt;

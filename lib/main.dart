@@ -14,6 +14,7 @@ import 'app_lock.dart';
 import 'app_lock_ui.dart';
 import 'db.dart';
 import 'following.dart';
+import 'hide_gestures.dart';
 import 'pace_log.dart';
 import 'archive.dart';
 import 'public_sources.dart';
@@ -79,6 +80,7 @@ Future<void> _main() async {
   AppLock.viewingProfile = () => mainTab.value == 1 ? followingProfile(deepSource.value ?? '') : null;
   ScreenAwake.onIdle = AppLock.idle;
   await _safe('lock', AppLock.load);
+  await _safe('hide', HideGestures.load);
   await _safe('auth', Auth.i.init);
   await _safe('session', RedditSession.load);
   // Thumbs are decoded at display size (cacheWidth); the extra room holds the viewer's prefetched originals
