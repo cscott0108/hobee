@@ -202,6 +202,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
     // Reading a big feed takes a moment: show the spinner, not the empty "Try again" footer.
     setState(() => _dbLoading = true);
     try {
+      // A user or subreddit you follow: show its saved posts right away while the archive loads.
+      try {
+        await Following.seedChannel(src);
+      } catch (_) {}
       await _fromDb();
     } finally {
       if (mounted) setState(() => _dbLoading = false);

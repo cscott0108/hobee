@@ -6,6 +6,7 @@ import 'archive.dart';
 import 'db.dart';
 import 'follows.dart';
 import 'models.dart';
+import 'sub_search.dart' show isSubSearch, subParts;
 
 /// Following feed (no login): every subreddit and user of a profile, merged by date.
 ///
@@ -105,6 +106,28 @@ class Following {
         byAuthor: f.kind == FollowKind.user, keep: _covered(await FollowStore.follows(profile)));
     version.value++;
     return n;
+  }
+
+  /// A user or subreddit page opened in Deep Search shows at once what your Following lists already saved for
+  /// it; the archive then adds newer and older posts as usual. Only for a page with nothing saved yet, and only
+  /// once the saved posts are indexed (a full scan would cost more than it saves). Returns posts copied.
+  static Future<int> seedChannel(String source) async {
+    String? author, sub;
+    if (isDeep(source)) {
+      (author, sub) = deepParts(source);
+    } else if (isSubSearch(source)) {
+      final p = subParts(source);
+      if (p.q.trim().isNotEmpty) return 0; // a search inside the subreddit: its own results only
+      sub = p.sub;
+      author = p.author.isEmpty ? null : p.author;
+    } else {
+      return 0;
+    }
+    if (!Db.channelsReady || await Db.count(source) > 0) return 0;
+    final posts = await Db.followedChannel(author: author, sub: sub);
+    if (posts.isEmpty) return 0;
+    await Db.savePosts(source, posts);
+    return posts.length;
   }
 
   // One fetch at a time: the refresher, the grid and the background task share the archive's rate limit.
