@@ -27,6 +27,8 @@ import 'settings.dart';
 import 'sub_search.dart';
 import 'sub_users.dart';
 import 'viewed.dart';
+import 'net_guard.dart';
+import 'net_ui.dart';
 
 const accent = Color(0xFFE53935);
 final themeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
@@ -50,6 +52,8 @@ Future<void> _main() async {
   }
   await sp.setBool('booting', true);
   themeMode.value = ThemeMode.values[(sp.getInt('theme') ?? 0).clamp(0, ThemeMode.values.length - 1)];
+  // Wi-Fi safety first: it installs the request gate before anything goes online.
+  await _safe('net', NetGuard.load);
   await _safe('filters', loadFilterPrefs);
   await _safe('archive', ArchiveConfig.load);
   await _safe('redlib', RedlibConfig.load);
@@ -131,7 +135,8 @@ class HobeeApp extends StatelessWidget {
             child: Listener(
               behavior: HitTestBehavior.translucent,
               onPointerDown: (_) => ScreenAwake.touched(),
-              child: child,
+              // Wi-Fi safety's banner sits above every page while Hobees is paused.
+              child: NetBanner(child: child ?? const SizedBox()),
             ),
           ),
         ),

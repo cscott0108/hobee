@@ -12,6 +12,7 @@ import 'clean.dart';
 import 'clean_image.dart';
 import 'saved.dart';
 import 'saved_ui.dart';
+import 'net_ui.dart';
 import 'package:flutter/material.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -280,6 +281,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const AppLockSettings(),
+        const NetworkSettingsTile(),
         ValueListenableBuilder(
           valueListenable: ScreenAwake.mode,
           builder: (_, m, _) => Column(children: [

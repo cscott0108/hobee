@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'embeds.dart';
 import 'models.dart';
+import 'net_guard.dart';
 import 'saved.dart';
 import 'screen_awake.dart';
 
@@ -129,6 +130,8 @@ class _VideoPageState extends State<VideoPage> {
   @override
   void initState() {
     super.initState();
+    NetGuard.decision.addListener(_netChanged);
+    NetGuard.onMobileData.addListener(_netChanged);
     if (widget.active) _init(); // neighbours stay cold: at most the visible video holds a decoder
   }
 
@@ -156,7 +159,23 @@ class _VideoPageState extends State<VideoPage> {
     _wasPlaying = false;
   }
 
+  /// Wi-Fi safety paused the app: wait, and start once the network is allowed again.
+  bool _netPaused = false;
+
+  void _netChanged() {
+    if (!_netPaused || NetGuard.paused || !mounted) return;
+    setState(() {
+      _netPaused = false;
+      err = null;
+    });
+    if (widget.active) _init();
+  }
+
   Future<void> _open() async {
+    if (NetGuard.paused && !isLocalPath(widget.item.url)) {
+      if (mounted) setState(() { _netPaused = true; err = 'Paused on an untrusted Wi-Fi'; });
+      return;
+    }
     final srcs = await videoSources(widget.item);
     Object? last;
     for (final (u, hls) in srcs) {
@@ -279,6 +298,8 @@ class _VideoPageState extends State<VideoPage> {
 
   @override
   void dispose() {
+    NetGuard.decision.removeListener(_netChanged);
+    NetGuard.onMobileData.removeListener(_netChanged);
     hide?.cancel();
     flashT?.cancel();
     _zoom.dispose();
