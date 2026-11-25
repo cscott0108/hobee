@@ -204,7 +204,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     try {
       // A user or subreddit you follow: show its saved posts right away while the archive loads.
       try {
-        await Following.seedChannel(src);
+        await Following.channelOpened(src);
       } catch (_) {}
       await _fromDb();
     } finally {

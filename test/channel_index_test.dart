@@ -75,16 +75,16 @@ void main() {
 
   test('a channel page with nothing saved starts from the Following posts; searches and filled pages are left alone', () async {
     await Db.savePosts('fol:1', [post('a', 'pics', 'amy', t: 1), post('b', 'cats', 'amy', t: 2), post('c', 'pics', 'bob', t: 3)]);
-    expect(await Following.seedChannel('deep:amy'), 0, reason: 'not indexed yet');
+    expect(await Following.channelOpened('deep:amy'), 0, reason: 'not indexed yet');
     await Db.backfillChannels(pause: Duration.zero);
-    expect(await Following.seedChannel('deep:amy'), 2);
+    expect(await Following.channelOpened('deep:amy'), 2);
     expect([for (final p in await Db.load('deep:amy')) p.id], ['b', 'a']);
-    expect(await Following.seedChannel('deep:amy'), 0, reason: 'already has posts');
-    expect(await Following.seedChannel('deep:amy@pics'), 1);
-    expect(await Following.seedChannel('sr:pics'), 2);
-    expect(await Following.seedChannel('sr:cats?q=kitten'), 0);
-    expect(await Following.seedChannel('fol:1'), 0);
-    expect(await Following.seedChannel('deep:nobody'), 0);
+    expect(await Following.channelOpened('deep:amy'), 0, reason: 'already has posts');
+    expect(await Following.channelOpened('deep:amy@pics'), 1);
+    expect(await Following.channelOpened('sr:pics'), 2);
+    expect(await Following.channelOpened('sr:cats?q=kitten'), 0);
+    expect(await Following.channelOpened('fol:1'), 0);
+    expect(await Following.channelOpened('deep:nobody'), 0);
   });
 
   test('unfollow uses the index once ready and keeps posts another follow covers', () async {

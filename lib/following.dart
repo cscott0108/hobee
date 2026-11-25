@@ -108,10 +108,11 @@ class Following {
     return n;
   }
 
-  /// A user or subreddit page opened in Deep Search shows at once what your Following lists already saved for
-  /// it; the archive then adds newer and older posts as usual. Only for a page with nothing saved yet, and only
-  /// once the saved posts are indexed (a full scan would cost more than it saves). Returns posts copied.
-  static Future<int> seedChannel(String source) async {
+  /// A user or subreddit page was opened in Deep Search. If a running refresh round still has it to check, it
+  /// moves to the front. A page with nothing saved yet shows at once what your Following lists already saved
+  /// for it; the archive then adds newer and older posts as usual (only once the saved posts are indexed: a
+  /// full scan would cost more than it saves). Returns posts copied.
+  static Future<int> channelOpened(String source) async {
     String? author, sub;
     if (isDeep(source)) {
       (author, sub) = deepParts(source);
@@ -123,11 +124,23 @@ class Following {
     } else {
       return 0;
     }
+    bump(author: author, sub: sub);
     if (!Db.channelsReady || await Db.count(source) > 0) return 0;
     final posts = await Db.followedChannel(author: author, sub: sub);
     if (posts.isEmpty) return 0;
     await Db.savePosts(source, posts);
     return posts.length;
+  }
+
+  /// Moves the follow for [author] (or else subreddit [sub]) to the front of every running refresh round.
+  static void bump({String? author, String? sub}) {
+    final kind = author != null ? FollowKind.user : FollowKind.sub;
+    final name = (author ?? sub)?.toLowerCase();
+    if (name == null) return;
+    for (final q in _round.values) {
+      final i = q.indexWhere((f) => f.kind == kind && f.name.toLowerCase() == name);
+      if (i > 0) q.insert(0, q.removeAt(i));
+    }
   }
 
   // One fetch at a time: the refresher, the grid and the background task share the archive's rate limit.
@@ -164,8 +177,9 @@ class Following {
   /// One page of an entry from Arctic Shift. Test seam.
   static Future<List<Map<String, dynamic>>> Function(Follow f, {int? after, int? before, int limit}) fetchPage = _arctic;
 
-  static Future<List<Map<String, dynamic>>> _arctic(Follow f, {int? after, int? before, int limit = 100}) => Archive.recentPosts(
-      sub: f.kind == FollowKind.sub ? f.name : null, author: f.kind == FollowKind.user ? f.name : null, after: after, before: before, limit: limit);
+  // Background work: the page you're looking at gets the archive first.
+  static Future<List<Map<String, dynamic>>> _arctic(Follow f, {int? after, int? before, int limit = 100}) => Archive.background(() => Archive.recentPosts(
+      sub: f.kind == FollowKind.sub ? f.name : null, author: f.kind == FollowKind.user ? f.name : null, after: after, before: before, limit: limit));
 
   static Future<List<Map<String, dynamic>>> _paced(Follow f, {int? after, int? before, required int limit}) async {
     final l = _last;
@@ -349,6 +363,9 @@ class Following {
     final v = d['created_utc'];
     return v is num ? v.toInt() : int.tryParse('$v') ?? 0;
   }
+
+  @visibleForTesting
+  static List<Follow> debugRound(String source, List<Follow> fs) => _round[source] = [...fs];
 
   @visibleForTesting
   static void debugReset() {

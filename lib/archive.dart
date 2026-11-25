@@ -124,8 +124,42 @@ class Archive {
   @visibleForTesting
   static bool pacing = true;
 
-  static Future<void> _pace(String host) {
-    if (!pacing) return Future<void>.value();
+  static const _bgKey = #hobeeBackgroundRequest;
+  static final Map<String, int> _fgWaiting = {};
+  static final Map<String, DateTime> _fgLast = {};
+
+  /// After a request for the page you're looking at, background requests to that host wait this long, so a
+  /// page's next request doesn't queue behind them.
+  static Duration giveWay = const Duration(seconds: 2);
+
+  /// Runs [f] as background work (the Following refresher): its requests give way to the open page's.
+  static Future<T> background<T>(Future<T> Function() f) => runZoned(f, zoneValues: {_bgKey: true});
+
+  @visibleForTesting
+  static Future<void> paceForTest(String host) => _pace(host);
+
+  static Future<void> _pace(String host) async {
+    if (!pacing) return;
+    final bg = Zone.current[_bgKey] == true;
+    if (bg) {
+      bool busy() => (_fgWaiting[host] ?? 0) > 0 || (_fgLast[host] != null && DateTime.now().difference(_fgLast[host]!) < giveWay);
+      while (busy()) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+    } else {
+      _fgWaiting[host] = (_fgWaiting[host] ?? 0) + 1;
+    }
+    try {
+      await _paceInOrder(host);
+    } finally {
+      if (!bg) {
+        _fgWaiting[host] = (_fgWaiting[host] ?? 1) - 1;
+        _fgLast[host] = DateTime.now();
+      }
+    }
+  }
+
+  static Future<void> _paceInOrder(String host) {
     final prev = _gate[host] ?? Future<void>.value();
     final mine = prev.then((_) async {
       final l = _last[host];
