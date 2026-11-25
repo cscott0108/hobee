@@ -75,4 +75,22 @@ void main() {
     expect(built, isNotEmpty, reason: 'built once it scrolls near');
     expect(built.length, lessThan(30), reason: 'only the rows near the screen');
   });
+
+  testWidgets('a plain mosaic below the screen builds nothing and keeps its height', (t) async {
+    final built = <int>{};
+    final aspects = [1.0, 0.5, 2.0, 1.0, 1.0, 0.75];
+    await t.pumpWidget(scroll([
+      const SliverToBoxAdapter(child: SizedBox(height: 20000)),
+      masonrySliver(aspects, 3, (k) {
+        built.add(k);
+        return const ColoredBox(color: Colors.blue);
+      }),
+      const SliverToBoxAdapter(child: SizedBox(key: Key('after'), height: 10)),
+    ]));
+    expect(built, isEmpty);
+    await t.drag(find.byType(CustomScrollView), const Offset(0, -19900));
+    await t.pump();
+    expect(built.length, aspects.length);
+    expect(t.getTopLeft(find.byKey(const Key('after'))).dy, closeTo(20000 - 19900 + Masonry(aspects, 3, 360).extent, 0.01));
+  });
 }

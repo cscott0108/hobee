@@ -196,12 +196,17 @@ double anchoredOffset(double offset, Map<String, double> oldTops, Map<String, do
 /// Lazy masonry sliver: [cols] side-by-side lists, each tile sized from its aspect ratio before anything loads.
 /// [tile] gets the index into [aspects].
 Widget masonrySliver(List<double> aspects, int cols, Widget Function(int index) tile) {
-  final m = Masonry(aspects, cols, 1); // column assignment doesn't depend on width
-  return SliverCrossAxisGroup(slivers: [
-    for (final col in m.columns)
-      SliverVariedExtentList(
-        itemExtentBuilder: (j, dims) => j < col.length ? dims.crossAxisExtent / aspects[col[j]] : 0.0,
-        delegate: SliverChildBuilderDelegate((_, j) => tile(col[j]), childCount: col.length),
-      ),
-  ]);
+  final m = Masonry(aspects, cols, 1); // column assignment doesn't depend on width; heights scale with it
+  return SliverLayoutBuilder(builder: (_, c) {
+    // Still below the area the list builds ahead: an empty box of the same height. (A list builds the first
+    // item of each column even there, which for a long feed of blocks meant hundreds of pictures loading.)
+    if (c.remainingCacheExtent <= 0) return SliverToBoxAdapter(child: SizedBox(height: m.extent * c.crossAxisExtent));
+    return SliverCrossAxisGroup(slivers: [
+      for (final col in m.columns)
+        SliverVariedExtentList(
+          itemExtentBuilder: (j, dims) => j < col.length ? dims.crossAxisExtent / aspects[col[j]] : 0.0,
+          delegate: SliverChildBuilderDelegate((_, j) => tile(col[j]), childCount: col.length),
+        ),
+    ]);
+  });
 }
