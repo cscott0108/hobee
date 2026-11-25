@@ -88,9 +88,9 @@ void main() {
       const SliverToBoxAdapter(child: SizedBox(key: Key('after'), height: 10)),
     ]));
     expect(built, isEmpty);
-    await t.drag(find.byType(CustomScrollView), const Offset(0, -19900));
+    await t.drag(find.byType(CustomScrollView), const Offset(0, -19700));
     await t.pump();
     expect(built.length, aspects.length);
-    expect(t.getTopLeft(find.byKey(const Key('after'))).dy, closeTo(20000 - 19900 + Masonry(aspects, 3, 360).extent, 0.01));
+    expect(t.getTopLeft(find.byKey(const Key('after'))).dy, closeTo(20000 - 19700 + Masonry(aspects, 3, 360).extent, 0.01));
   });
 }
