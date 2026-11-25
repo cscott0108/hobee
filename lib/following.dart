@@ -35,7 +35,9 @@ class FollowState {
   bool done; // no older posts left
   int n; // posts loaded for this entry so far
   int quiet; // checks in a row that found nothing new
-  FollowState({this.at = 0, this.newest, this.oldest, this.done = false, this.n = 0, this.quiet = 0});
+  int fails; // checks in a row that failed
+  String? err; // why the last failed check failed
+  FollowState({this.at = 0, this.newest, this.oldest, this.done = false, this.n = 0, this.quiet = 0, this.fails = 0, this.err});
 
   factory FollowState.decode(String? s) {
     if (s == null) return FollowState();
@@ -43,12 +45,12 @@ class FollowState {
       final m = jsonDecode(s) as Map<String, dynamic>;
       return FollowState(
           at: m['at'] as int? ?? 0, newest: m['new'] as int?, oldest: m['old'] as int?, done: m['done'] == true, n: m['n'] as int? ?? 0,
-          quiet: m['q'] as int? ?? 0);
+          quiet: m['q'] as int? ?? 0, fails: m['f'] as int? ?? 0, err: m['e'] as String?);
     } catch (_) {
       return FollowState();
     }
   }
-  String encode() => jsonEncode({'at': at, 'new': ?newest, 'old': ?oldest, 'done': done, 'n': n, if (quiet > 0) 'q': quiet});
+  String encode() => jsonEncode({'at': at, 'new': ?newest, 'old': ?oldest, 'done': done, 'n': n, if (quiet > 0) 'q': quiet, if (fails > 0) 'f': fails, 'e': ?err});
 }
 
 class Following {
@@ -71,6 +73,28 @@ class Following {
     final d = streak > base ? streak : base;
     return d > maxRecheck ? maxRecheck : d;
   }
+
+  /// A short, plain reason for a failed check (shown on the Following lists screen).
+  static String failReason(Object e) {
+    final t = '$e'.replaceFirst('Exception: ', '');
+    final l = t.toLowerCase();
+    if (l.contains('slow down') || l.contains('busy')) return 'archive asked to slow down';
+    if (l.contains('429') || l.contains('rate')) return 'rate-limited';
+    if (l.contains('timed out') || l.contains('timeout')) return 'timed out';
+    if (l.contains('404') || l.contains('not found')) return 'not found';
+    if (l.contains('network') || l.contains('socket') || l.contains('paused')) return 'no connection';
+    return t.length > 60 ? '${t.substring(0, 60)}…' : t;
+  }
+
+  /// The saved check state of each entry of [profile], by [Follow.key].
+  static Future<Map<String, FollowState>> statesOf(int profile) async {
+    final src = followingKey(profile);
+    return {for (final f in await FollowStore.follows(profile)) f.key: await _state(src, f)};
+  }
+
+  /// When an entry is next due on its own (opening the feed or the background task), or null if never checked.
+  static DateTime? nextCheck(FollowState s, int nowMs) =>
+      s.at == 0 ? null : DateTime.fromMillisecondsSinceEpoch(s.at).add(recheckAfter(s, nowMs));
 
   static final _force = <String>{};
   static final _logged = <String>{}; // sources whose round end is already in the pace log
@@ -361,10 +385,17 @@ class Following {
           s.done = true; // nothing at all for this entry
         }
         s.quiet = rows.isEmpty ? s.quiet + 1 : 0;
+        s.fails = 0;
+        s.err = null;
         s.at = t;
         await _save(source, f, s);
         checked++;
       } catch (e) {
+        s.fails++;
+        s.err = failReason(e);
+        try {
+          await _save(source, f, s);
+        } catch (_) {}
         // First failure: try this entry again at the end of the round (after a pause if the archive said
         // to slow down). Second failure: count it and move on; the next round retries it.
         if (_retried.putIfAbsent(source, () => {}).add(f.key)) {
@@ -484,4 +515,37 @@ class FollowingRefresher {
     _gen++;
     _source = null;
   }
+}
+
+/// How a followed subreddit or user is doing, from its saved check state.
+enum ChannelHealth { unchecked, active, quiet, dead, failing }
+
+/// Failing: its last 2+ checks failed. Dead: checked, and nothing ever found or its newest post is over
+/// [deadAfter] old. Quiet: newest post over a week old. Active otherwise. Unchecked: never checked yet.
+ChannelHealth healthOf(FollowState s, int nowMs, {Duration deadAfter = const Duration(days: 180)}) {
+  if (s.fails >= 2) return ChannelHealth.failing;
+  if (s.at == 0) return ChannelHealth.unchecked;
+  final n = s.newest;
+  if (n == null) return s.done ? ChannelHealth.dead : ChannelHealth.unchecked;
+  final age = Duration(milliseconds: nowMs - n * 1000);
+  if (age > deadAfter) return ChannelHealth.dead;
+  if (age > const Duration(days: 7)) return ChannelHealth.quiet;
+  return ChannelHealth.active;
+}
+
+String _iso(int? ms) => ms == null ? '' : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true).toIso8601String();
+
+/// One CSV row per entry: name, kind, status, last post, last checked, next check, posts saved, failures, last error.
+String channelReportCsv(List<Follow> follows, Map<String, FollowState> states, int nowMs) {
+  String q(String x) => x.contains(RegExp('[",\n]')) ? '"${x.replaceAll('"', '""').replaceAll('\n', ' ')}"' : x;
+  final rows = <String>['name,kind,status,last_post_utc,last_checked_utc,next_check_utc,posts_saved,failures_in_a_row,last_error'];
+  for (final f in follows) {
+    final s = states[f.key] ?? FollowState();
+    rows.add([
+      q(f.label), f.kind == FollowKind.sub ? 'subreddit' : 'user', healthOf(s, nowMs).name,
+      _iso(s.newest == null ? null : s.newest! * 1000), _iso(s.at == 0 ? null : s.at),
+      _iso(Following.nextCheck(s, nowMs)?.millisecondsSinceEpoch), s.n, s.fails, q(s.err ?? ''),
+    ].join(','));
+  }
+  return rows.join('\n');
 }
