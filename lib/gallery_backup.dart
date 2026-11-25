@@ -26,7 +26,7 @@ class GalleryBackup {
   /// Same item = saved at the same moment from the same post.
   static String _key(int savedAt, String postId) => '$savedAt|$postId';
 
-  /// Writes Hobees_backup_<date>.zip to Downloads. Returns where it went.
+  /// Writes `Hobees_backup_<date>.zip` to Downloads. Returns where it went.
   static Future<String> backup() async {
     final items = await SavedStore.all();
     if (items.isEmpty) throw StateError('Nothing to back up');

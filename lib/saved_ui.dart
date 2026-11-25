@@ -285,7 +285,7 @@ class _SavedGalleryScreenState extends State<SavedGalleryScreen> {
                     ],
                   ),
                 ],
-              )),
+              ),
         body: Column(children: [
           if (busy) const LinearProgressIndicator(),
           Expanded(
