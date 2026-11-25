@@ -119,7 +119,11 @@ void main() {
       await t.runAsync(() => Future.delayed(const Duration(milliseconds: 200))); // profiles load
       await t.pump();
       await t.tap(find.byKey(const Key('import-save')));
-      await t.runAsync(() => Future.delayed(const Duration(milliseconds: 300)));
+      // Saving is real database work: wait until the screen has closed (up to 10 s), not a fixed time.
+      for (var i = 0; i < 50 && find.text('go').evaluate().isEmpty; i++) {
+        await t.runAsync(() => Future.delayed(const Duration(milliseconds: 200)));
+        await t.pump();
+      }
       await t.pumpAndSettle();
       final fs = await t.runAsync(() => FollowStore.follows(id!));
       expect(fs!.map((f) => f.label), containsAll(['r/imp_a', 'r/imp_b', 'u/imp-user']));
