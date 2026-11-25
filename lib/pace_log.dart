@@ -8,7 +8,7 @@ import 'net_guard.dart';
 
 const _media = MethodChannel('hobee/media');
 
-/// Saves [text] into the phone's Downloads as "<base>_<UTC time>.<ext>". Returns where it went.
+/// Saves [text] into the phone's Downloads as `base_UTCtime.ext`. Returns where it went.
 Future<String> saveTextToDownloads(String base, String ext, String text) async {
   final tmp = File('${(await getTemporaryDirectory()).path}/$base.$ext');
   await tmp.writeAsString(text);
