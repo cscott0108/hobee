@@ -19,7 +19,7 @@ void main() {
   Future<void> settle(WidgetTester t) async {
     for (var i = 0; i < 30; i++) {
       await t.runAsync(() => Future.delayed(const Duration(milliseconds: 20)));
-      await t.pump();
+      await t.pump(const Duration(milliseconds: 50)); // also runs the bottom sheet's animation
     }
   }
 
