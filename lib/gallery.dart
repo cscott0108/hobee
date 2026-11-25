@@ -1,4 +1,5 @@
 import 'following.dart';
+import 'saved_ui.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -513,6 +514,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         title: TitleButton(widget.title ?? 'Hobees', onTap: widget.onTitleTap),
         actions: [
           ...widget.actions,
+          const GalleryButton(),
           IconButton(icon: const Icon(Icons.calendar_month), tooltip: 'Jump to month', onPressed: sections.isEmpty ? null : _jump),
           IconButton(
             tooltip: 'More', icon: const Icon(Icons.more_vert),

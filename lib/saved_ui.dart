@@ -4,6 +4,20 @@ import 'gallery_export.dart';
 import 'saved.dart';
 import 'viewer.dart';
 
+void openSavedGallery(BuildContext context) =>
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const SavedGalleryScreen()));
+
+/// Top-bar button that opens the private gallery.
+class GalleryButton extends StatelessWidget {
+  const GalleryButton({super.key});
+  @override
+  Widget build(BuildContext context) => IconButton(
+      key: const Key('gallery-button'),
+      tooltip: 'Hobees gallery',
+      icon: const Icon(Icons.photo_library_outlined),
+      onPressed: () => openSavedGallery(context));
+}
+
 /// Settings entry for the private gallery.
 class SavedGalleryTile extends StatelessWidget {
   const SavedGalleryTile({super.key});
@@ -13,7 +27,7 @@ class SavedGalleryTile extends StatelessWidget {
         leading: const Icon(Icons.photo_library_outlined),
         title: const Text('Hobees gallery'),
         subtitle: const Text('Pictures and videos you saved privately. Export or share them from here.'),
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SavedGalleryScreen())),
+        onTap: () => openSavedGallery(context),
       );
 }
 

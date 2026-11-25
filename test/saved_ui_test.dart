@@ -120,4 +120,20 @@ void main() {
     expect(find.text('Hobees gallery · 1'), findsOneWidget);
     await t.pumpWidget(const SizedBox());
   });
+
+  testWidgets('the top-bar gallery button opens the Hobees gallery', (t) async {
+    await t.runAsync(() async {
+      tmp = await Directory.systemTemp.createTemp('hobees_ui');
+      SavedStore.baseDir = () async => tmp;
+      await (await Db.db).delete('saved');
+    });
+    addTearDown(() => t.runAsync(() => tmp.delete(recursive: true)));
+    await t.pumpWidget(MaterialApp(home: Scaffold(appBar: AppBar(actions: const [GalleryButton()]))));
+    await t.tap(find.byKey(const Key('gallery-button')));
+    await t.pumpAndSettle();
+    await settle(t);
+    expect(find.byType(SavedGalleryScreen), findsOneWidget);
+    expect(find.textContaining('Nothing saved yet'), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
+  });
 }
