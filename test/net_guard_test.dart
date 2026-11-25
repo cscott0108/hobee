@@ -9,8 +9,8 @@ void main() {
   const hidden = NetInfo(NetType.wifi, handle: 400); // no location permission: Android hides name and router
   const cell = NetInfo(NetType.cellular, handle: 500);
 
-  NetDecision d(NetInfo? n, {bool on = true, UntrustedWifi u = UntrustedWifi.pause, bool mobile = true, NetInfo? once}) =>
-      NetGuard.decide(on: on, net: n, trustedNets: const [home], onUntrusted: u, mobileOk: mobile, once: once);
+  NetDecision d(NetInfo? n, {bool on = true, UntrustedWifi u = UntrustedWifi.pause, bool mobile = true, bool vpnOk = true, NetInfo? once}) =>
+      NetGuard.decide(on: on, net: n, trustedNets: const [home], onUntrusted: u, mobileOk: mobile, vpnOk: vpnOk, once: once);
 
   tearDown(NetGuard.debugReset);
 
@@ -43,12 +43,22 @@ void main() {
         reason: 'rejoining later is a new connection');
   });
 
-  test('mobile data has its own switch; offline and VPN are left alone', () {
+  test('mobile data has its own switch; offline is left alone', () {
     expect(d(cell), NetDecision.allow);
     expect(d(cell, mobile: false), NetDecision.pause);
     expect(d(const NetInfo(NetType.none)), NetDecision.allow);
-    expect(d(const NetInfo(NetType.vpn)), NetDecision.allow);
     expect(d(null), NetDecision.allow);
+  });
+
+  test('a connected VPN counts as safe on any network (setting on by default); off, the usual rules apply', () {
+    const cafeVpn = NetInfo(NetType.wifi, ssid: 'Cafe Guest', bssid: '00:11:22:33:44:55', handle: 300, vpn: true);
+    expect(d(cafeVpn), NetDecision.allow);
+    expect(d(cafeVpn, vpnOk: false), NetDecision.pause);
+    expect(d(const NetInfo(NetType.cellular, vpn: true), mobile: false), NetDecision.allow);
+    expect(d(NetInfo.fromMap(const {'type': 'vpn'}), vpnOk: false), NetDecision.pause, reason: 'unknown network under the VPN');
+    expect(NetInfo.fromMap(const {'type': 'wifi', 'vpn': true}).vpn, isTrue);
+    expect(NetGuard.backgroundAllowed(on: true, net: cafeVpn, trustedHandle: null, mobileOk: true), isTrue);
+    expect(NetGuard.backgroundAllowed(on: true, net: cafeVpn, trustedHandle: null, mobileOk: true, vpnOk: false), isFalse);
   });
 
   test('background refresh: only on the connection last seen trusted, or mobile data if allowed', () {

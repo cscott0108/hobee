@@ -16,7 +16,7 @@ Future<bool> askWifiNamePermission() async {
 String netLabel(NetInfo? i) {
   if (i == null || i.type == NetType.none) return 'Offline';
   return switch (i.type) {
-    NetType.wifi => i.ssid == null ? 'Wi-Fi (name hidden)' : 'Wi-Fi "${i.ssid}"',
+    NetType.wifi => '${i.ssid == null ? 'Wi-Fi (name hidden)' : 'Wi-Fi "${i.ssid}"'}${i.vpn ? ' + VPN' : ''}',
     NetType.cellular => 'Mobile data',
     NetType.vpn => 'VPN',
     NetType.ethernet => 'Ethernet',
@@ -59,7 +59,9 @@ class _Bar extends StatelessWidget {
         : !wifi
             ? 'Mobile data is off for Hobees: paused'
             : NetGuard.decision.value == NetDecision.mobileData
-                ? 'Untrusted Wi-Fi: mobile data isn\'t available, paused'
+                ? (i?.vpn ?? false)
+                    ? 'Untrusted Wi-Fi: mobile data can\'t be used while a VPN is on, paused'
+                    : 'Untrusted Wi-Fi: mobile data isn\'t available, paused'
                 : other != null
                     ? 'Another access point of "${other.label.isEmpty ? other.name : other.label}": paused'
                     : '${netLabel(i)} isn\'t trusted: Hobees is paused';
@@ -141,7 +143,8 @@ class NetworkSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Wi-Fi safety')),
         body: ListenableBuilder(
-          listenable: Listenable.merge([NetGuard.enabled, NetGuard.untrusted, NetGuard.mobileData, NetGuard.trusted, NetGuard.current, NetGuard.decision]),
+          listenable: Listenable.merge(
+              [NetGuard.enabled, NetGuard.untrusted, NetGuard.mobileData, NetGuard.vpnSafe, NetGuard.trusted, NetGuard.current, NetGuard.decision]),
           builder: (context, _) {
             final i = NetGuard.current.value;
             final trustedNow = i != null && NetGuard.trusted.value.any((t) => t.matches(i));
@@ -198,6 +201,14 @@ class NetworkSettingsScreen extends StatelessWidget {
                   ],
                   onChanged: (v) => NetGuard.untrusted.value = v ?? UntrustedWifi.pause,
                 ),
+              ),
+              SwitchListTile(
+                key: const Key('net-vpn-safe'),
+                title: const Text('A VPN counts as safe'),
+                subtitle: const Text('While a VPN is connected, Hobees works on any network: the network only sees encrypted '
+                    'traffic. If the VPN drops, the rules above apply again.'),
+                value: NetGuard.vpnSafe.value,
+                onChanged: (v) => NetGuard.vpnSafe.value = v,
               ),
               SwitchListTile(
                 key: const Key('net-mobile-ok'),

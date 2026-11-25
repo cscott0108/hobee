@@ -18,11 +18,14 @@ class NetInfo {
   final NetType type;
   final String? ssid, bssid;
   final int? handle;
-  const NetInfo(this.type, {this.ssid, this.bssid, this.handle});
+  /// A VPN is connected (its traffic is tunneled whatever network is underneath).
+  final bool vpn;
+  const NetInfo(this.type, {this.ssid, this.bssid, this.handle, this.vpn = false});
 
   static NetInfo fromMap(Map<Object?, Object?>? m) {
     final t = NetType.values.asNameMap()[m?['type']] ?? NetType.none;
-    return NetInfo(t, ssid: m?['ssid'] as String?, bssid: (m?['bssid'] as String?)?.toLowerCase(), handle: (m?['handle'] as num?)?.toInt());
+    return NetInfo(t, ssid: m?['ssid'] as String?, bssid: (m?['bssid'] as String?)?.toLowerCase(), handle: (m?['handle'] as num?)?.toInt(),
+        vpn: m?['vpn'] == true || t == NetType.vpn);
   }
 
   /// Same connection as [o] (for "Use once" and change detection).
@@ -57,6 +60,8 @@ class NetGuard {
   /// Mobile data allowed (directly, and as the way round an untrusted Wi-Fi).
   static final mobileData = ValueNotifier<bool>(true);
   static final trusted = ValueNotifier<List<TrustedNet>>(const []);
+  /// A connected VPN (e.g. NordVPN, later SecuRDP) counts as safe on any network. On by default.
+  static final vpnSafe = ValueNotifier<bool>(true);
 
   static final current = ValueNotifier<NetInfo?>(null);
   static final decision = ValueNotifier<NetDecision>(NetDecision.allow);
@@ -77,9 +82,11 @@ class NetGuard {
     required List<TrustedNet> trustedNets,
     required UntrustedWifi onUntrusted,
     required bool mobileOk,
+    bool vpnOk = true,
     NetInfo? once,
   }) {
     if (!on || net == null) return NetDecision.allow;
+    if (net.vpn && vpnOk) return NetDecision.allow; // tunneled: the network underneath only sees encrypted traffic
     switch (net.type) {
       case NetType.wifi:
         if (trustedNets.any((t) => t.matches(net))) return NetDecision.allow;
@@ -91,7 +98,11 @@ class NetGuard {
         };
       case NetType.cellular:
         return mobileOk ? NetDecision.allow : NetDecision.pause;
-      case NetType.vpn: // already a tunnel (e.g. SecuRDP); Phase 8 adds its own rules
+      case NetType.vpn: // a VPN on an unknown network, while 'A VPN counts as safe' is off
+        return switch (onUntrusted) {
+          UntrustedWifi.allow => NetDecision.allow,
+          _ => NetDecision.pause,
+        };
       case NetType.ethernet:
       case NetType.other:
       case NetType.none: // offline: nothing goes out anyway
@@ -101,12 +112,13 @@ class NetGuard {
 
   /// Background refresh, which may not read the Wi-Fi name: allowed only on the very connection last seen
   /// trusted while Hobees was open (same Android connection id), or on mobile data if allowed.
-  static bool backgroundAllowed({required bool on, required NetInfo net, required int? trustedHandle, required bool mobileOk}) {
+  static bool backgroundAllowed({required bool on, required NetInfo net, required int? trustedHandle, required bool mobileOk, bool vpnOk = true}) {
     if (!on) return true;
+    if (net.vpn && vpnOk) return true;
     return switch (net.type) {
       NetType.wifi => trustedHandle != null && net.handle == trustedHandle,
       NetType.cellular => mobileOk,
-      NetType.none => false,
+      NetType.none || NetType.vpn => false,
       _ => true,
     };
   }
@@ -126,6 +138,8 @@ class NetGuard {
     enabled.value = sp.getBool('netSafety') ?? false;
     untrusted.value = UntrustedWifi.values.asNameMap()[sp.getString('netUntrusted')] ?? UntrustedWifi.pause;
     mobileData.value = sp.getBool('netMobileData') ?? true;
+    vpnSafe.value = sp.getBool('netVpnSafe') ?? true;
+    vpnSafe.addListener(() => sp.setBool('netVpnSafe', vpnSafe.value));
     try {
       trusted.value = [for (final j in jsonDecode(sp.getString('netTrusted') ?? '[]') as List) ?TrustedNet.fromJson(j)];
     } catch (_) {
@@ -152,7 +166,7 @@ class NetGuard {
   static void _wire() {
     if (_wired) return;
     _wired = true;
-    for (final n in [enabled, untrusted, mobileData, trusted]) {
+    for (final n in [enabled, untrusted, mobileData, trusted, vpnSafe]) {
       n.addListener(() => unawaited(refresh()));
     }
   }
@@ -200,8 +214,9 @@ class NetGuard {
     final net = await read();
     if (_once != null && !_once!.same(net)) _once = null; // left the network: "Use once" ends
     current.value = net;
-    debugPrint('net: ${net?.type.name} handle=${net?.handle} decision=${decide(on: enabled.value, net: net, trustedNets: trusted.value, onUntrusted: untrusted.value, mobileOk: mobileData.value, once: _once).name} mobile=${onMobileData.value}');
-    final d = decide(on: enabled.value, net: net, trustedNets: trusted.value, onUntrusted: untrusted.value, mobileOk: mobileData.value, once: _once);
+    debugPrint('net: ${net?.type.name} handle=${net?.handle} vpn=${net?.vpn} mobile=${onMobileData.value}');
+    final d = decide(
+        on: enabled.value, net: net, trustedNets: trusted.value, onUntrusted: untrusted.value, mobileOk: mobileData.value, vpnOk: vpnSafe.value, once: _once);
     if (enabled.value && net != null && net.type == NetType.wifi && trusted.value.any((t) => t.matches(net))) {
       await _sp?.setInt('netTrustedHandle', net.handle ?? -1); // for the background refresh (see [backgroundAllowed])
     }
@@ -252,7 +267,8 @@ class NetGuard {
     if (!(sp.getBool('netSafety') ?? false)) return true;
     final net = await read();
     if (net == null) return false;
-    return backgroundAllowed(on: true, net: net, trustedHandle: sp.getInt('netTrustedHandle'), mobileOk: sp.getBool('netMobileData') ?? true);
+    return backgroundAllowed(on: true, net: net, trustedHandle: sp.getInt('netTrustedHandle'), mobileOk: sp.getBool('netMobileData') ?? true,
+        vpnOk: sp.getBool('netVpnSafe') ?? true);
   }
 
   @visibleForTesting
@@ -261,6 +277,7 @@ class NetGuard {
     enabled.value = false;
     untrusted.value = UntrustedWifi.pause;
     mobileData.value = true;
+    vpnSafe.value = true;
     trusted.value = const [];
     current.value = null;
     decision.value = NetDecision.allow;
