@@ -346,7 +346,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Save downloads to'),
             subtitle: Text(to == SaveTo.hobees
                 ? 'Private: only Hobees can see them. Uninstalling Hobees or clearing its data deletes them, so export what you want to keep.'
-                : 'Pictures / Movies, so they show in the phone's gallery app.'),
+                : "Pictures / Movies, so they show in the phone's gallery app."),
             trailing: DropdownButton<SaveTo>(
               value: to,
               items: const [
