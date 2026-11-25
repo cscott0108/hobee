@@ -348,7 +348,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
       _capKey = capKey;
       _cap = resultStep;
     }
-    (shown, _capMore) = capResults(shown, _cap);
+    final (capped, more) = capResults(shown, _cap);
+    shown = capped;
+    _capMore = more;
     _textHits = textish ? 0 : shown.where((p) => p.media.isEmpty).length;
     var cp = <String, List<Post>>{};
     if (isFollowing(effectiveSource())) shown = Following.applyKind(shown, effectiveSource());
