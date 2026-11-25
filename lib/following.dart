@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'archive.dart';
 import 'db.dart';
 import 'follows.dart';
@@ -76,6 +77,35 @@ class Following {
 
   /// Bumps when posts were saved (the grid reloads from the database).
   static final version = ValueNotifier<int>(0);
+
+  /// Posts a list's follows still cover: a followed subreddit's posts, or a followed user's posts.
+  static bool Function(Post p) _covered(List<Follow> fs) {
+    final subs = {for (final x in fs) if (x.kind == FollowKind.sub) x.name.toLowerCase()};
+    final users = {for (final x in fs) if (x.kind == FollowKind.user) x.name.toLowerCase()};
+    return (p) => subs.contains(p.subreddit.toLowerCase()) || users.contains(p.author.toLowerCase());
+  }
+
+  /// One-time clean-up per list: posts of follows removed before unfollowing dropped them (1.6.x).
+  static Future<void> pruneOnce(int profile) async {
+    final sp = await SharedPreferences.getInstance();
+    final k = 'folPruned:$profile';
+    if (sp.getBool(k) ?? false) return;
+    final fs = await FollowStore.follows(profile);
+    if (fs.isEmpty) return;
+    final n = await Db.prunePosts(followingKey(profile), _covered(fs));
+    await sp.setBool(k, true);
+    if (n > 0) version.value++;
+  }
+
+  /// Unfollow [f] in [profile]: its saved posts leave the list too, except posts another follow still covers
+  /// (a followed user's post in a followed subreddit stays while either is followed).
+  static Future<int> unfollow(int profile, Follow f) async {
+    await FollowStore.remove(profile, f);
+    final n = await Db.dropPostsOf(followingKey(profile), f.name,
+        byAuthor: f.kind == FollowKind.user, keep: _covered(await FollowStore.follows(profile)));
+    version.value++;
+    return n;
+  }
 
   // One fetch at a time: the refresher, the grid and the background task share the archive's rate limit.
   static Future<void> _lock = Future<void>.value();

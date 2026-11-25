@@ -90,6 +90,56 @@ class Db {
     await db.execute('CREATE TABLE IF NOT EXISTS sub_meta(sub TEXT PRIMARY KEY, nsfw REAL, fetched INTEGER)');
   }
 
+  /// Removes from a Following list's saved feed the posts of one subreddit ([byAuthor] false) or one user
+  /// ([byAuthor] true), after it was unfollowed. Posts that still belong to the list through another follow
+  /// ([keep] says so) stay. Returns how many were removed.
+  static Future<int> dropPostsOf(String source, String name, {required bool byAuthor, bool Function(Post p)? keep}) async {
+    final d = await db;
+    final key = byAuthor ? 'author' : 'subreddit';
+    final want = name.toLowerCase();
+    var last = 0, removed = 0;
+    while (true) {
+      // Cheap text match first (the saved JSON has no spaces); then check the real field, case-insensitive.
+      final rows = await d.rawQuery(
+          'SELECT rowid AS r, id, json FROM posts WHERE source=? AND rowid > ? AND instr(lower(json), ?) > 0 ORDER BY rowid LIMIT ?',
+          [source, last, '"$key":"$want"', chunkRows]);
+      if (rows.isEmpty) break;
+      last = rows.last['r'] as int;
+      final b = d.batch();
+      for (final r in rows) {
+        final p = Post.fromJson(jsonDecode(r['json'] as String) as Map<String, dynamic>);
+        if (p == null) continue;
+        if ((byAuthor ? p.author : p.subreddit).toLowerCase() != want || (keep?.call(p) ?? false)) continue;
+        b.delete('posts', where: 'source=? AND id=?', whereArgs: [source, r['id']]);
+        removed++;
+      }
+      await b.commit(noResult: true);
+    }
+    return removed;
+  }
+
+  /// Removes every post of [source] that [keep] says no longer belongs (e.g. from follows removed before
+  /// unfollowing cleaned up). Reads in chunks. Returns how many were removed.
+  static Future<int> prunePosts(String source, bool Function(Post p) keep) async {
+    final d = await db;
+    var last = 0, removed = 0;
+    while (true) {
+      final rows = await d.rawQuery('SELECT rowid AS r, id, json FROM posts WHERE source=? AND rowid > ? ORDER BY rowid LIMIT ?',
+          [source, last, chunkRows]);
+      if (rows.isEmpty) break;
+      last = rows.last['r'] as int;
+      final b = d.batch();
+      for (final r in rows) {
+        final p = Post.fromJson(jsonDecode(r['json'] as String) as Map<String, dynamic>);
+        if (p == null || keep(p)) continue;
+        b.delete('posts', where: 'source=? AND id=?', whereArgs: [source, r['id']]);
+        removed++;
+      }
+      await b.commit(noResult: true);
+    }
+    return removed;
+  }
+
   /// Rows per database read. One query result is copied whole across the platform channel, so a big feed
   /// read at once can run the Android side out of memory; reading it in chunks keeps each copy small.
   static int chunkRows = 1000;
