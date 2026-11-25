@@ -70,6 +70,8 @@ class NetGuard {
 
   /// "Use once": this connection is allowed until the phone leaves it.
   static NetInfo? _once;
+  /// Banner "Use mobile data": for this connection only (the saved setting stays as it is).
+  static NetInfo? _mobileOnce;
   static SharedPreferences? _sp;
 
   /// Paused: Hobees must not go online. Checked before every web request, video and background run.
@@ -84,6 +86,7 @@ class NetGuard {
     required bool mobileOk,
     bool vpnOk = true,
     NetInfo? once,
+    NetInfo? mobileOnce,
   }) {
     if (!on || net == null) return NetDecision.allow;
     if (net.vpn && vpnOk) return NetDecision.allow; // tunneled: the network underneath only sees encrypted traffic
@@ -91,6 +94,7 @@ class NetGuard {
       case NetType.wifi:
         if (trustedNets.any((t) => t.matches(net))) return NetDecision.allow;
         if (once != null && once.same(net)) return NetDecision.allow;
+        if (mobileOnce != null && mobileOnce.same(net)) return mobileOk ? NetDecision.mobileData : NetDecision.pause;
         return switch (onUntrusted) {
           UntrustedWifi.allow => NetDecision.allow,
           UntrustedWifi.mobileData => mobileOk ? NetDecision.mobileData : NetDecision.pause,
@@ -213,10 +217,11 @@ class NetGuard {
   static Future<void> _refresh() async {
     final net = await read();
     if (_once != null && !_once!.same(net)) _once = null; // left the network: "Use once" ends
+    if (_mobileOnce != null && !_mobileOnce!.same(net)) _mobileOnce = null;
     current.value = net;
     debugPrint('net: ${net?.type.name} handle=${net?.handle} vpn=${net?.vpn} mobile=${onMobileData.value}');
     final d = decide(
-        on: enabled.value, net: net, trustedNets: trusted.value, onUntrusted: untrusted.value, mobileOk: mobileData.value, vpnOk: vpnSafe.value, once: _once);
+        on: enabled.value, net: net, trustedNets: trusted.value, onUntrusted: untrusted.value, mobileOk: mobileData.value, vpnOk: vpnSafe.value, once: _once, mobileOnce: _mobileOnce);
     if (enabled.value && net != null && net.type == NetType.wifi && trusted.value.any((t) => t.matches(net))) {
       await _sp?.setInt('netTrustedHandle', net.handle ?? -1); // for the background refresh (see [backgroundAllowed])
     }
@@ -244,6 +249,12 @@ class NetGuard {
   /// Banner "Use once": allow this connection until the phone leaves it.
   static Future<void> useOnce() async {
     _once = current.value;
+    await refresh();
+  }
+
+  /// Banner "Use mobile data": route over mobile data until the phone leaves this Wi-Fi.
+  static Future<void> mobileOnce() async {
+    _mobileOnce = current.value;
     await refresh();
   }
 
@@ -283,6 +294,7 @@ class NetGuard {
     decision.value = NetDecision.allow;
     onMobileData.value = false;
     _once = null;
+    _mobileOnce = null;
     _running = null; // a check left over from an earlier test must not hold up the next one
     _again = false;
   }

@@ -9,8 +9,8 @@ void main() {
   const hidden = NetInfo(NetType.wifi, handle: 400); // no location permission: Android hides name and router
   const cell = NetInfo(NetType.cellular, handle: 500);
 
-  NetDecision d(NetInfo? n, {bool on = true, UntrustedWifi u = UntrustedWifi.pause, bool mobile = true, bool vpnOk = true, NetInfo? once}) =>
-      NetGuard.decide(on: on, net: n, trustedNets: const [home], onUntrusted: u, mobileOk: mobile, vpnOk: vpnOk, once: once);
+  NetDecision d(NetInfo? n, {bool on = true, UntrustedWifi u = UntrustedWifi.pause, bool mobile = true, bool vpnOk = true, NetInfo? once, NetInfo? mobileOnce}) =>
+      NetGuard.decide(on: on, net: n, trustedNets: const [home], onUntrusted: u, mobileOk: mobile, vpnOk: vpnOk, once: once, mobileOnce: mobileOnce);
 
   tearDown(NetGuard.debugReset);
 
@@ -41,6 +41,12 @@ void main() {
     expect(d(lookAlike, once: cafe), NetDecision.pause);
     expect(d(const NetInfo(NetType.wifi, ssid: 'Cafe Guest', bssid: '00:11:22:33:44:55', handle: 301), once: cafe), NetDecision.pause,
         reason: 'rejoining later is a new connection');
+  });
+
+  test('banner "Use mobile data" applies to that connection only', () {
+    expect(d(cafe, mobileOnce: cafe), NetDecision.mobileData);
+    expect(d(cafe, mobileOnce: cafe, mobile: false), NetDecision.pause);
+    expect(d(lookAlike, mobileOnce: cafe), NetDecision.pause);
   });
 
   test('mobile data has its own switch; offline is left alone', () {

@@ -61,6 +61,7 @@ void main() {
     expect(NetGuard.onMobileData.value, isTrue);
     expect(NetGuard.paused, isFalse);
     expect(find.textContaining('using mobile data'), findsOneWidget);
+    expect(NetGuard.untrusted.value, UntrustedWifi.pause, reason: 'only for this connection; the saved setting is unchanged');
   });
 
   testWidgets('name hidden (no location permission): no Trust button, offers to show the name', (t) async {

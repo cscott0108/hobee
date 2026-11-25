@@ -86,7 +86,7 @@ class _Bar extends StatelessWidget {
                   TextButton(
                       key: const Key('net-mobile'),
                       style: btn,
-                      onPressed: () => NetGuard.untrusted.value = UntrustedWifi.mobileData,
+                      onPressed: NetGuard.mobileOnce,
                       child: const Text('Use mobile data')),
                 if (i?.ssid == null)
                   TextButton(key: const Key('net-permission'), style: btn, onPressed: askWifiNamePermission, child: const Text('Show Wi-Fi name'))
@@ -148,6 +148,7 @@ class NetworkSettingsScreen extends StatelessWidget {
           builder: (context, _) {
             final i = NetGuard.current.value;
             final trustedNow = i != null && NetGuard.trusted.value.any((t) => t.matches(i));
+            final other = NetGuard.sameNameOnly(i);
             return ListView(children: [
               SwitchListTile(
                 key: const Key('net-safety'),
@@ -170,12 +171,17 @@ class NetworkSettingsScreen extends StatelessWidget {
                         ? 'Trusted'
                         : i?.ssid == null
                             ? 'Android hides the Wi-Fi name until Hobees has location permission (and location is on). The location itself is never read.'
-                            : 'Not trusted'),
+                            : other != null
+                                ? 'Another access point of "${other.label.isEmpty ? other.name : other.label}" (routers use a different id for each band). Add it if it is yours.'
+                                : 'Not trusted'),
                 trailing: i?.type != NetType.wifi || trustedNow
                     ? null
                     : i?.ssid == null
                         ? TextButton(onPressed: askWifiNamePermission, child: const Text('Allow'))
-                        : TextButton(key: const Key('net-trust-here'), onPressed: () => NetGuard.trustCurrent(), child: const Text('Trust')),
+                        : TextButton(
+                            key: const Key('net-trust-here'),
+                            onPressed: () => NetGuard.trustCurrent(label: other?.label ?? ''),
+                            child: Text(other != null ? 'Add' : 'Trust')),
               ),
               const Divider(),
               const ListTile(dense: true, title: Text('Trusted networks')),
