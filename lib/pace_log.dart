@@ -6,6 +6,17 @@ import 'package:path_provider/path_provider.dart';
 import 'db.dart';
 import 'net_guard.dart';
 
+const _media = MethodChannel('hobee/media');
+
+/// Saves [text] into the phone's Downloads as `base_UTCtime.ext`. Returns where it went.
+Future<String> saveTextToDownloads(String base, String ext, String text) async {
+  final tmp = File('${(await getTemporaryDirectory()).path}/$base.$ext');
+  await tmp.writeAsString(text);
+  final ts = DateTime.now().toUtc().toIso8601String().replaceAll(RegExp(r'[:.]'), '-');
+  final mime = ext == 'csv' ? 'text/csv' : 'text/plain';
+  return await _media.invokeMethod<String>('download', {'path': tmp.path, 'name': '${base}_$ts.$ext', 'mime': mime}) ?? '';
+}
+
 /// One archive request, or a marker (app start, refresh round, setting change).
 class PaceEntry {
   final int t; // start, ms since epoch (UTC)
@@ -163,15 +174,8 @@ class PaceLog {
 
   static Future<String> csv() async => [PaceEntry.csvHeader, for (final e in await all()) e.toCsv()].join('\n');
 
-  static const _media = MethodChannel('hobee/media');
-
   /// Writes the log as CSV into Downloads ("Hobees_pace_log_<time>.csv"). Returns where it went.
-  static Future<String> saveToDownloads() async {
-    final tmp = File('${(await getTemporaryDirectory()).path}/pace_log.csv');
-    await tmp.writeAsString(await csv());
-    final ts = DateTime.now().toUtc().toIso8601String().replaceAll(RegExp(r'[:.]'), '-');
-    return await _media.invokeMethod<String>('download', {'path': tmp.path, 'name': 'Hobees_pace_log_$ts.csv', 'mime': 'text/csv'}) ?? '';
-  }
+  static Future<String> saveToDownloads() async => saveTextToDownloads('Hobees_pace_log', 'csv', await csv());
 
   static Future<void> clear() async => (await Db.db).delete('pace_log');
 }

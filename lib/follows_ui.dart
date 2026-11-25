@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'age.dart';
 import 'following.dart';
 import 'follows.dart';
+import 'pace_log.dart' show saveTextToDownloads;
 
 Future<String?> _askName(BuildContext context, String title, {String initial = ''}) {
   final c = TextEditingController(text: initial);
@@ -32,6 +34,9 @@ class _FollowsScreenState extends State<FollowsScreen> {
   int? shown;
   List<Follow> follows = const [];
   String filter = '';
+  Map<String, FollowState> states = const {};
+  ChannelHealth? only; // status filter (null: all)
+  String sortBy = 'name'; // name, post, checked, status
 
   @override
   void initState() {
@@ -50,11 +55,13 @@ class _FollowsScreenState extends State<FollowsScreen> {
     final ps = await FollowStore.profiles();
     final id = ps.any((p) => p.id == shown) ? shown! : (ps.any((p) => p.id == FollowStore.active.value) ? FollowStore.active.value! : ps.first.id);
     final fs = await FollowStore.follows(id);
+    final st = await Following.statesOf(id);
     if (!mounted) return;
     setState(() {
       profiles = ps;
       shown = id;
       follows = fs;
+      states = st;
     });
   }
 
@@ -112,6 +119,16 @@ class _FollowsScreenState extends State<FollowsScreen> {
     }
   }
 
+  Future<void> _report() async {
+    final name = profiles.firstWhere((p) => p.id == shown).name.replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_');
+    try {
+      await saveTextToDownloads('Hobees_channels_$name', 'csv', channelReportCsv(follows, states, DateTime.now().millisecondsSinceEpoch));
+      _snack('Saved the channel report to Downloads');
+    } catch (e) {
+      _snack("Couldn't save: $e");
+    }
+  }
+
   void _snack(String s) {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
   }
@@ -120,7 +137,27 @@ class _FollowsScreenState extends State<FollowsScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final f = filter.toLowerCase();
-    final list = f.isEmpty ? follows : follows.where((x) => x.name.toLowerCase().contains(f)).toList();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    ChannelHealth h(Follow x) => healthOf(states[x.key] ?? FollowState(), now);
+    final counts = <ChannelHealth, int>{};
+    for (final x in follows) {
+      counts[h(x)] = (counts[h(x)] ?? 0) + 1;
+    }
+    final list = [
+      for (final x in follows)
+        if ((f.isEmpty || x.name.toLowerCase().contains(f)) && (only == null || h(x) == only)) x
+    ];
+    int newest(Follow x) => states[x.key]?.newest ?? 0;
+    int checked(Follow x) => states[x.key]?.at ?? 0;
+    switch (sortBy) {
+      case 'post':
+        list.sort((a, b) => newest(b).compareTo(newest(a)));
+      case 'checked':
+        list.sort((a, b) => checked(a).compareTo(checked(b)));
+      case 'status':
+        const order = [ChannelHealth.failing, ChannelHealth.dead, ChannelHealth.quiet, ChannelHealth.unchecked, ChannelHealth.active];
+        list.sort((a, b) => order.indexOf(h(a)).compareTo(order.indexOf(h(b))));
+    }
     final subs = follows.where((x) => x.kind == FollowKind.sub).length;
     return Scaffold(
       appBar: AppBar(
@@ -132,7 +169,21 @@ class _FollowsScreenState extends State<FollowsScreen> {
             onPressed: shown == null ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => ImportScreen(profile: shown!))),
           ),
           PopupMenuButton<String>(
+            key: const Key('channels-sort'),
+            tooltip: 'Sort',
+            icon: const Icon(Icons.sort),
+            initialValue: sortBy,
+            onSelected: (v) => setState(() => sortBy = v),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'name', child: Text('By name')),
+              PopupMenuItem(value: 'post', child: Text('Newest post first')),
+              PopupMenuItem(value: 'checked', child: Text('Longest since checked')),
+              PopupMenuItem(value: 'status', child: Text('Problems first')),
+            ],
+          ),
+          PopupMenuButton<String>(
             onSelected: (v) => switch (v) {
+              'report' => _report(),
               'new' => _newProfile(),
               'rename' => _rename(),
               'delete' => _delete(),
@@ -149,6 +200,8 @@ class _FollowsScreenState extends State<FollowsScreen> {
               PopupMenuItem(value: 'txt', child: Text('Export as text')),
               PopupMenuItem(value: 'csv', child: Text('Export as CSV')),
               PopupMenuItem(value: 'copy', child: Text('Copy to clipboard')),
+              PopupMenuDivider(),
+              PopupMenuItem(value: 'report', child: Text('Save channel report')),
             ],
           ),
         ],
@@ -178,6 +231,30 @@ class _FollowsScreenState extends State<FollowsScreen> {
               Text('Shown in Following', style: TextStyle(color: cs.primary, fontSize: 12)),
           ]),
         ),
+        if (follows.isNotEmpty)
+          SizedBox(
+            height: 48,
+            child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12), children: [
+              for (final (k, label) in [
+                (null, 'All'),
+                (ChannelHealth.active, 'Active'),
+                (ChannelHealth.quiet, 'Quiet'),
+                (ChannelHealth.dead, 'Dead'),
+                (ChannelHealth.failing, 'Failing'),
+                (ChannelHealth.unchecked, 'Not checked'),
+              ])
+                if (k == null || (counts[k] ?? 0) > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      key: Key('health-${k?.name ?? 'all'}'),
+                      label: Text('$label ${k == null ? follows.length : counts[k]}'),
+                      selected: only == k,
+                      onSelected: (_) => setState(() => only = k),
+                    ),
+                  ),
+            ]),
+          ),
         if (follows.length > 12)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -206,10 +283,16 @@ class _FollowsScreenState extends State<FollowsScreen> {
                   itemCount: list.length,
                   itemBuilder: (_, i) {
                     final x = list[i];
+                    final st = states[x.key];
                     return ListTile(
                       dense: true,
                       leading: Icon(x.kind == FollowKind.sub ? Icons.forum_outlined : Icons.person_outline),
-                      title: Text(x.label),
+                      title: Row(children: [
+                        Flexible(child: Text(x.label, overflow: TextOverflow.ellipsis)),
+                        const SizedBox(width: 8),
+                        _HealthTag(h(x)),
+                      ]),
+                      subtitle: Text(channelLine(st, now), key: Key('channel-line-${x.key}'), maxLines: 2, overflow: TextOverflow.ellipsis),
                       trailing: IconButton(
                         tooltip: 'Remove',
                         icon: const Icon(Icons.close),
@@ -358,6 +441,53 @@ class _ImportScreenState extends State<ImportScreen> {
           child: Text(r.follows.isEmpty ? 'Save' : 'Save ${r.follows.length}'),
         ),
       ]),
+    );
+  }
+}
+
+String _ago(int ms, int now) {
+  final a = shortAge(ms ~/ 1000, now: DateTime.fromMillisecondsSinceEpoch(now));
+  return a == 'now' ? 'just now' : '$a ago';
+}
+
+/// The status line under a channel: last post, last check, next check, posts saved, failures.
+String channelLine(FollowState? s, int now) {
+  if (s == null || s.at == 0) return 'Not checked yet';
+  final next = Following.nextCheck(s, now);
+  final left = next?.difference(DateTime.fromMillisecondsSinceEpoch(now));
+  final due = left == null
+      ? ''
+      : left.isNegative
+          ? 'due now'
+          : left.inMinutes < 60
+              ? 'next in ${left.inMinutes + 1} min'
+              : 'next in ${left.inHours} h';
+  return [
+    s.newest == null ? 'no posts found' : 'last post ${_ago(s.newest! * 1000, now)}',
+    'checked ${_ago(s.at, now)}',
+    if (due.isNotEmpty) due,
+    '${s.n} saved',
+    if (s.fails > 0) 'failed ${s.fails}× (${s.err ?? 'unknown'})',
+  ].join(' · ');
+}
+
+class _HealthTag extends StatelessWidget {
+  final ChannelHealth h;
+  const _HealthTag(this.h);
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final (label, color) = switch (h) {
+      ChannelHealth.active => ('Active', Colors.green),
+      ChannelHealth.quiet => ('Quiet', Colors.amber.shade700),
+      ChannelHealth.dead => ('Dead', cs.outline),
+      ChannelHealth.failing => ('Failing', cs.error),
+      ChannelHealth.unchecked => ('Not checked', cs.outline),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(border: Border.all(color: color), borderRadius: BorderRadius.circular(6)),
+      child: Text(label, style: TextStyle(fontSize: 10.5, color: color, fontWeight: FontWeight.w600)),
     );
   }
 }
