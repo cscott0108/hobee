@@ -11,6 +11,7 @@ import 'app_lock_ui.dart';
 import 'clean.dart';
 import 'clean_image.dart';
 import 'saved.dart';
+import 'saved_ui.dart';
 import 'package:flutter/material.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -339,6 +340,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) => cleanJpegs.value = v,
           ),
         ),
+        const SavedGalleryTile(),
         ValueListenableBuilder(
           valueListenable: saveTo,
           builder: (_, to, _) => ListTile(
