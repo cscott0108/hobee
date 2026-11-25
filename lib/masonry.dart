@@ -130,37 +130,31 @@ double sectionOffset(List<List<double>> aspects, int s, int cols, double width, 
   return off;
 }
 
-/// One framed block: [header] on top, then the pictures in a masonry of [cols] inside the frame.
+/// One framed block: [header] on top, then the pictures in a masonry of [cols] inside the frame, as slivers:
+/// like the plain mosaic, a picture is only built (and so loaded) when it scrolls near the screen.
 /// Its height is exactly [groupBlockExtent] of the inner masonry (the frame is drawn over, not around, so it
 /// takes no space).
-Widget groupBlock({required List<double> aspects, required int cols, required Widget header, required Widget Function(int k) tile, required Color color}) =>
-    LayoutBuilder(builder: (_, box) {
-      final inner = box.maxWidth - 2 * groupPad;
-      final m = Masonry(aspects, cols, inner);
-      final colW = inner / cols;
-      final colOf = <int, int>{
-        for (var c = 0; c < m.columns.length; c++)
-          for (final i in m.columns[c]) i: c,
-      };
-      return Container(
-        key: const Key('group-block'),
-        margin: const EdgeInsets.symmetric(vertical: groupGap),
-        padding: const EdgeInsets.fromLTRB(groupPad, 0, groupPad, groupPad),
-        decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(10)),
-        foregroundDecoration: BoxDecoration(border: Border.all(color: color, width: 2), borderRadius: BorderRadius.circular(10)),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          SizedBox(height: groupHeaderH, child: header),
-          SizedBox(
-            height: m.extent,
-            width: inner,
-            child: Stack(children: [
-              for (var k = 0; k < aspects.length; k++)
-                Positioned(left: colOf[k]! * colW, top: m.top[k], width: colW, height: colW / aspects[k], child: tile(k)),
-            ]),
-          ),
-        ]),
-      );
-    });
+Widget groupSliver({required List<double> aspects, required int cols, required Widget header, required Widget Function(int k) tile, required Color color}) {
+  final radius = BorderRadius.circular(10);
+  return SliverPadding(
+    padding: const EdgeInsets.symmetric(vertical: groupGap),
+    sliver: DecoratedSliver(
+      key: const Key('group-block'),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: radius),
+      sliver: DecoratedSliver(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(border: Border.all(color: color, width: 2), borderRadius: radius),
+        sliver: SliverPadding(
+          padding: const EdgeInsets.fromLTRB(groupPad, 0, groupPad, groupPad),
+          sliver: SliverMainAxisGroup(slivers: [
+            SliverToBoxAdapter(child: SizedBox(height: groupHeaderH, child: header)),
+            masonrySliver(aspects, cols, tile),
+          ]),
+        ),
+      ),
+    ),
+  );
+}
 
 /// Where the view is: the tile at or just above [offset] and how far below its top the view starts.
 /// Saved when you leave a feed, so coming back puts you on the same tile even if newer posts came in above.
@@ -202,12 +196,17 @@ double anchoredOffset(double offset, Map<String, double> oldTops, Map<String, do
 /// Lazy masonry sliver: [cols] side-by-side lists, each tile sized from its aspect ratio before anything loads.
 /// [tile] gets the index into [aspects].
 Widget masonrySliver(List<double> aspects, int cols, Widget Function(int index) tile) {
-  final m = Masonry(aspects, cols, 1); // column assignment doesn't depend on width
-  return SliverCrossAxisGroup(slivers: [
-    for (final col in m.columns)
-      SliverVariedExtentList(
-        itemExtentBuilder: (j, dims) => j < col.length ? dims.crossAxisExtent / aspects[col[j]] : 0.0,
-        delegate: SliverChildBuilderDelegate((_, j) => tile(col[j]), childCount: col.length),
-      ),
-  ]);
+  final m = Masonry(aspects, cols, 1); // column assignment doesn't depend on width; heights scale with it
+  return SliverLayoutBuilder(builder: (_, c) {
+    // Still below the area the list builds ahead: an empty box of the same height. (A list builds the first
+    // item of each column even there, which for a long feed of blocks meant hundreds of pictures loading.)
+    if (c.remainingCacheExtent <= 0) return SliverToBoxAdapter(child: SizedBox(height: m.extent * c.crossAxisExtent));
+    return SliverCrossAxisGroup(slivers: [
+      for (final col in m.columns)
+        SliverVariedExtentList(
+          itemExtentBuilder: (j, dims) => j < col.length ? dims.crossAxisExtent / aspects[col[j]] : 0.0,
+          delegate: SliverChildBuilderDelegate((_, j) => tile(col[j]), childCount: col.length),
+        ),
+    ]);
+  });
 }
