@@ -59,13 +59,13 @@ String haystack(Post p) => _hay[p] ??= fold([
 
 List<String> _wordsOf(Post p) => _words[p] ??= haystack(p).split(RegExp(r'[^a-z0-9]+')).where((w) => w.length >= 3).toSet().toList();
 
-/// True when every term is found (substring), or for longer words, a word one typo away.
-bool textMatches(Post p, List<String> terms) {
+/// True when every term is found (substring), or for longer words, a word one typo away ([typos]).
+bool textMatches(Post p, List<String> terms, {bool typos = true}) {
   if (terms.isEmpty) return true;
   final h = haystack(p);
   for (final t in terms) {
     if (h.contains(t)) continue;
-    if (t.length < 4 || t.contains(' ')) return false;
+    if (!typos || t.length < 4 || t.contains(' ')) return false;
     if (!_wordsOf(p).any((w) => (w.length - t.length).abs() <= 1 && withinOneEdit(w, t))) return false;
   }
   return true;
