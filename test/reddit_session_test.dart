@@ -14,7 +14,13 @@ void main() {
     seen.clear();
     status = 200;
     RedditSession.read = (k) async => store[k];
-    RedditSession.write = (k, v) async => v == null ? store.remove(k) : store[k] = v;
+    RedditSession.write = (k, v) async {
+      if (v == null) {
+        store.remove(k);
+      } else {
+        store[k] = v;
+      }
+    };
     RedditSession.client = () => MockClient((r) async {
           seen.add(r);
           if (status != 200) return http.Response('no', status);
