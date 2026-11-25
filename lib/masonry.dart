@@ -43,13 +43,75 @@ class Masonry {
   }
 }
 
+/// Multi-picture posts are drawn as one framed block across the grid: a header line (user, subreddit, count)
+/// and the post's pictures in their own masonry inside the frame. These sizes are shared by the widget and the
+/// scroll maths, so jumping and keeping your place stay exact.
+const double groupHeaderH = 30, groupPad = 4, groupGap = 6;
+
+/// Height of a framed block whose pictures take [inner].
+double groupBlockExtent(double inner) => 2 * groupGap + groupHeaderH + inner + groupPad;
+
+/// A run of a section's items, [start, end): plain mosaic tiles, or all pictures of one post (a framed block).
+class Piece {
+  final int start, end;
+  final bool group;
+  const Piece(this.start, this.end, this.group);
+}
+
+/// Splits a section into pieces. [groups][i] is the post id when item i belongs to a multi-picture post,
+/// else null; two or more neighbouring items of the same post make a block.
+List<Piece> sectionPieces(List<String?> groups) {
+  bool startsGroup(int j) => groups[j] != null && j + 1 < groups.length && groups[j + 1] == groups[j];
+  final out = <Piece>[];
+  var i = 0;
+  while (i < groups.length) {
+    if (startsGroup(i)) {
+      var j = i + 1;
+      while (j < groups.length && groups[j] == groups[i]) {
+        j++;
+      }
+      out.add(Piece(i, j, true));
+      i = j;
+    } else {
+      var j = i + 1;
+      while (j < groups.length && !startsGroup(j)) {
+        j++;
+      }
+      out.add(Piece(i, j, false));
+      i = j;
+    }
+  }
+  return out;
+}
+
+/// Top of each item within a section and the section's height (without its header), blocks included.
+({List<double> top, double extent}) layoutSection(List<double> aspects, List<String?>? groups, int cols, double width) {
+  if (groups == null || groups.every((g) => g == null)) {
+    final m = Masonry(aspects, cols, width);
+    return (top: m.top, extent: m.extent);
+  }
+  final top = List<double>.filled(aspects.length, 0);
+  var y = 0.0;
+  for (final p in sectionPieces(groups)) {
+    final inner = p.group ? width - 2 * groupPad : width;
+    final m = Masonry(aspects.sublist(p.start, p.end), cols, inner);
+    final base = p.group ? y + groupGap + groupHeaderH : y;
+    for (var k = 0; k < m.top.length; k++) {
+      top[p.start + k] = base + m.top[k];
+    }
+    y += p.group ? groupBlockExtent(m.extent) : m.extent;
+  }
+  return (top: top, extent: y);
+}
+
 /// Top of every item, measured from the top of the first section, for a list of sections that each
 /// start with a header of [headerH]. Keys are taken from [keys] (same shape as [aspects]).
-Map<String, double> sectionTops(List<List<String>> keys, List<List<double>> aspects, int cols, double width, double headerH) {
+Map<String, double> sectionTops(List<List<String>> keys, List<List<double>> aspects, int cols, double width, double headerH,
+    {List<List<String?>>? groups}) {
   final out = <String, double>{};
   var y = 0.0;
   for (var s = 0; s < keys.length; s++) {
-    final m = Masonry(aspects[s], cols, width);
+    final m = layoutSection(aspects[s], groups?[s], cols, width);
     y += headerH;
     for (var i = 0; i < keys[s].length; i++) {
       out.putIfAbsent(keys[s][i], () => y + m.top[i]);
@@ -60,12 +122,60 @@ Map<String, double> sectionTops(List<List<String>> keys, List<List<double>> aspe
 }
 
 /// Offset of section [s] from the top of the first section.
-double sectionOffset(List<List<double>> aspects, int s, int cols, double width, double headerH) {
+double sectionOffset(List<List<double>> aspects, int s, int cols, double width, double headerH, {List<List<String?>>? groups}) {
   var off = 0.0;
   for (var i = 0; i < s && i < aspects.length; i++) {
-    off += headerH + Masonry(aspects[i], cols, width).extent;
+    off += headerH + layoutSection(aspects[i], groups?[i], cols, width).extent;
   }
   return off;
+}
+
+/// One framed block: [header] on top, then the pictures in a masonry of [cols] inside the frame.
+/// Its height is exactly [groupBlockExtent] of the inner masonry (the frame is drawn over, not around, so it
+/// takes no space).
+Widget groupBlock({required List<double> aspects, required int cols, required Widget header, required Widget Function(int k) tile, required Color color}) =>
+    LayoutBuilder(builder: (_, box) {
+      final inner = box.maxWidth - 2 * groupPad;
+      final m = Masonry(aspects, cols, inner);
+      final colW = inner / cols;
+      final colOf = <int, int>{
+        for (var c = 0; c < m.columns.length; c++)
+          for (final i in m.columns[c]) i: c,
+      };
+      return Container(
+        key: const Key('group-block'),
+        margin: const EdgeInsets.symmetric(vertical: groupGap),
+        padding: const EdgeInsets.fromLTRB(groupPad, 0, groupPad, groupPad),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(10)),
+        foregroundDecoration: BoxDecoration(border: Border.all(color: color, width: 2), borderRadius: BorderRadius.circular(10)),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(height: groupHeaderH, child: header),
+          SizedBox(
+            height: m.extent,
+            width: inner,
+            child: Stack(children: [
+              for (var k = 0; k < aspects.length; k++)
+                Positioned(left: colOf[k]! * colW, top: m.top[k], width: colW, height: colW / aspects[k], child: tile(k)),
+            ]),
+          ),
+        ]),
+      );
+    });
+
+/// Where the view is: the tile at or just above [offset] and how far below its top the view starts.
+/// Saved when you leave a feed, so coming back puts you on the same tile even if newer posts came in above.
+({String key, double delta})? scrollPlace(Map<String, double> tops, double offset) {
+  if (offset <= 0) return null;
+  String? best;
+  var bestTop = double.negativeInfinity;
+  tops.forEach((k, y) {
+    if (y <= offset && y > bestTop) {
+      best = k;
+      bestTop = y;
+    }
+  });
+  final b = best;
+  return b == null ? null : (key: b, delta: offset - bestTop);
 }
 
 /// Keep the view on the same item when items above it disappear or move: take the first item at or below

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'app_lock.dart';
 import 'following.dart';
@@ -17,6 +18,7 @@ Future<void> openFollowing([int? profile]) async {
   deepPrev.value = null;
   deepSource.value = followingKey(id);
   mainTab.value = 1;
+  unawaited(Following.pruneOnce(id)); // drops posts of follows removed before unfollowing cleaned up
 }
 
 /// Deep Search → Following: pick a profile, open its feed, or manage the lists.

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'following.dart';
 import 'follows.dart';
 
 Future<String?> _askName(BuildContext context, String title, {String initial = ''}) {
@@ -212,7 +213,7 @@ class _FollowsScreenState extends State<FollowsScreen> {
                       trailing: IconButton(
                         tooltip: 'Remove',
                         icon: const Icon(Icons.close),
-                        onPressed: () => FollowStore.remove(shown!, x),
+                        onPressed: () => Following.unfollow(shown!, x),
                       ),
                     );
                   },

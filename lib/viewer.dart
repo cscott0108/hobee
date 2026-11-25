@@ -8,6 +8,7 @@ import 'archive.dart';
 import 'archive_ui.dart';
 import 'clean_image.dart';
 import 'download.dart';
+import 'downloaded.dart';
 import 'filters.dart';
 import 'following.dart';
 import 'models.dart';
@@ -153,7 +154,16 @@ class _ViewerState extends State<Viewer> {
               foregroundColor: Colors.white,
               title: Text(e.post.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
               actions: widget.actions?.call(context, e) ?? [
-                IconButton(icon: const Icon(Icons.download), tooltip: 'Download', onPressed: () => _download()),
+                ValueListenableBuilder(
+                  valueListenable: Downloaded.urls,
+                  builder: (_, d, _) => d.contains(e.item.url)
+                      ? IconButton(
+                          key: const Key('viewer-downloaded'),
+                          icon: const Icon(Icons.download_done),
+                          tooltip: 'Downloaded (tap to download again)',
+                          onPressed: () => _download())
+                      : IconButton(icon: const Icon(Icons.download), tooltip: 'Download', onPressed: () => _download()),
+                ),
                 if (e.post.media.length > 1)
                   IconButton(icon: const Icon(Icons.download_for_offline), tooltip: 'Download all', onPressed: () => _download(all: true)),
                 IconButton(

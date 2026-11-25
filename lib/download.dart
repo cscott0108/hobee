@@ -9,6 +9,7 @@ import 'clean_image.dart';
 import 'embeds.dart';
 import 'models.dart';
 import 'saved.dart';
+import 'downloaded.dart';
 
 const _ch = MethodChannel('hobee/media');
 
@@ -60,7 +61,9 @@ class Downloader {
   /// (default) or the phone's Pictures / Movies with a plain timestamp name. Nothing names the source.
   static Future<String> save(MediaItem m, Post post, {int? profile}) async {
     final (file, ext, mime, video) = await _prepare(m);
-    return store(file, ext: ext, mime: mime, video: video, item: m, post: post, profile: profile);
+    final r = await store(file, ext: ext, mime: mime, video: video, item: m, post: post, profile: profile);
+    await Downloaded.mark(m.url, post.id);
+    return r;
   }
 
   /// Puts a downloaded, cleaned file in its destination. Returns the saved path or MediaStore uri.

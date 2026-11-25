@@ -1,5 +1,6 @@
 import 'following.dart';
 import 'saved_ui.dart';
+import 'downloaded.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -60,6 +61,43 @@ class _GalleryScreenState extends State<GalleryScreen> {
   bool _active = true;
   String? _loaded;
 
+  /// Where you were in each feed this session (by tile, not pixels), so Back from a subreddit, a user or the
+  /// viewer puts you where you left off instead of at the top.
+  static final _places = <String, ({String key, double delta})>{};
+  Timer? _placeT;
+
+  void _savePlace() {
+    final src = _loaded;
+    if (src == null || !mounted || !sc.hasClients || entries.isEmpty) return;
+    final w = context.size?.width;
+    if (w == null) return;
+    final p = scrollPlace(_tops(sections, entries, _square, w), sc.offset);
+    if (p == null) {
+      _places.remove(src);
+    } else {
+      _places[src] = p;
+    }
+  }
+
+  /// Scroll back to the saved tile, loading older chunks of a big feed until it's there.
+  Future<void> _restorePlace(String src) async {
+    final p = _places[src];
+    if (p == null) return;
+    for (var i = 0; i < 30; i++) {
+      if (!mounted || src != effectiveSource()) return;
+      final w = context.size?.width ?? MediaQuery.sizeOf(context).width;
+      final y = _tops(sections, entries, _square, w)[p.key];
+      if (y != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && sc.hasClients) sc.jumpTo((y + p.delta).clamp(0.0, sc.position.maxScrollExtent));
+        });
+        return;
+      }
+      if (!_dbMore) return;
+      await _growDb();
+    }
+  }
+
   // Big feeds open as a window of the newest posts (Db.windowStep); scrolling near the end loads the next
   // chunk from the database before asking the network. Search and date ranges read the whole feed.
   bool _windowed = false, _dbMore = false, _dbLoading = false;
@@ -95,6 +133,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
     Viewed.hide.addListener(_viewedChanged);
     sc.addListener(() {
       if (sc.position.pixels > sc.position.maxScrollExtent - 1200) _more();
+      _placeT?.cancel();
+      _placeT = Timer(const Duration(milliseconds: 400), _savePlace);
     });
     _switch();
   }
@@ -102,6 +142,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   @override
   void dispose() {
     _retryT?.cancel();
+    _placeT?.cancel();
     currentSource.removeListener(_switch);
     subSort.removeListener(_switchSort);
     viewFilters.removeListener(_rebuildSoon);
@@ -154,6 +195,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
       _rebuild();
       return;
     }
+    _savePlace(); // the feed being left
     _loaded = src;
     _bg = 0;
     _bgStart = DateTime.now();
@@ -164,6 +206,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     } finally {
       if (mounted) setState(() => _dbLoading = false);
     }
+    await _restorePlace(src);
     final (_, d) = await Db.cursor(src);
     if (!mounted || src != effectiveSource()) return;
     setState(() => done = d);
@@ -258,7 +301,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   Map<String, double> _tops(List<_Section> secs, List<Entry> es, bool square, double w) => sectionTops(
       [for (final s in secs) [for (final i in s.idx) '${es[i].post.id}#${es[i].index}']],
-      _aspects(secs, es, square), _cols, w, _headerH);
+      _aspects(secs, es, square), _cols, w, _headerH, groups: _groups(secs, es));
+
+  /// Per section: the post id of items that belong to a multi-picture post (shown as one framed block).
+  List<List<String?>> _groups(List<_Section> secs, List<Entry> es) =>
+      [for (final s in secs) [for (final i in s.idx) es[i].post.media.length > 1 ? es[i].post.id : null]];
 
   void _viewedChanged() {
     if (!isSubSearch(effectiveSource()) && !isSubSearch(_loaded ?? '')) return;
@@ -444,11 +491,33 @@ class _GalleryScreenState extends State<GalleryScreen> {
     return ' · back to ${t.day}/${t.month}/${t.year}';
   }
 
-  double _offsetOf(int s, double w) => sectionOffset(_aspects(sections, entries, _square), s, _cols, w, _headerH);
+  double _offsetOf(int s, double w) =>
+      sectionOffset(_aspects(sections, entries, _square), s, _cols, w, _headerH, groups: _groups(sections, entries));
 
   /// One section as a masonry sliver; Square mode gives the old fixed grid.
-  Widget _masonry(_Section s, Widget Function(int entryIndex) tile) => masonrySliver(
-      [for (final i in s.idx) tileAspect(entries[i].item.aspect, square: _square)], _cols, (j) => tile(s.idx[j]));
+  Widget _masonry(_Section s, Widget Function(int entryIndex, bool grouped) tile) {
+    final aspects = [for (final i in s.idx) tileAspect(entries[i].item.aspect, square: _square)];
+    final groups = [for (final i in s.idx) entries[i].post.media.length > 1 ? entries[i].post.id : null];
+    final pieces = sectionPieces(groups);
+    if (pieces.length == 1 && !pieces.single.group) return masonrySliver(aspects, _cols, (j) => tile(s.idx[j], false));
+    final cs = Theme.of(context).colorScheme;
+    return SliverMainAxisGroup(slivers: [
+      for (final p in pieces)
+        if (!p.group)
+          masonrySliver(aspects.sublist(p.start, p.end), _cols, (j) => tile(s.idx[p.start + j], false))
+        else
+          SliverToBoxAdapter(
+            child: groupBlock(
+              aspects: aspects.sublist(p.start, p.end),
+              cols: _cols,
+              color: cs.primary,
+              header: _GroupHeader(entries[s.idx[p.start]].post, p.end - p.start,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Viewer(entries: entries, start: s.idx[p.start])))),
+              tile: (k) => tile(s.idx[p.start + k], true),
+            ),
+          ),
+    ]);
+  }
 
   void _jump() {
     final years = <int, List<int>>{};
@@ -552,7 +621,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
             for (final s in sections)
               SliverMainAxisGroup(slivers: [
                 SliverPersistentHeader(pinned: true, delegate: _Header(s.label, '${s.idx.length}', cs)),
-                _masonry(s, (i) {
+                _masonry(s, (i, grouped) {
                     final e = entries[i];
                     if (dupesOn && !textish) Dedupe.wantFrames(e.post); // no-op unless 'Compare video frames' is on
                     final dup = copies[e.post.id];
@@ -578,13 +647,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
                                     return Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.broken_image));
                                   }),
                           // Bottom left: where the post came from (mixed feeds only), then the author or archive status.
-                          if (deep || e.index == 0)
+                          // In a framed block the header names the user and subreddit once for all its pictures.
+                          if (deep || (e.index == 0 && !grouped))
                             Positioned(
                               left: deep ? 4 : 3,
                               bottom: deep ? 4 : 3,
                               right: 30,
                               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                if (e.index == 0 && showTileSub(effectiveSource(), e.post.subreddit)) ...[
+                                if (e.index == 0 && !grouped && showTileSub(effectiveSource(), e.post.subreddit)) ...[
                                   Flexible(child: TileSub(e.post.subreddit, key: const Key('tile-sub'))),
                                   const SizedBox(height: 2),
                                 ],
@@ -593,7 +663,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
                             ),
                           if (e.item.type != MediaType.image)
                             const Positioned(right: 4, top: 4, child: _Badge(Icons.play_arrow_rounded)),
-                          if (e.post.media.length > 1)
+                          // Downloaded already (either gallery): a check under the play badge.
+                          ValueListenableBuilder(
+                            valueListenable: Downloaded.urls,
+                            builder: (_, d, _) => d.contains(e.item.url)
+                                ? Positioned(right: 4, top: e.item.type != MediaType.image ? 28 : 4, child: const _Badge(Icons.download_done_rounded, key: Key('downloaded-badge')))
+                                : const SizedBox.shrink(),
+                          ),
+                          if (e.post.media.length > 1 && !grouped)
                             const Positioned(left: 4, top: 4, child: _Badge(Icons.collections_rounded)),
                           if (dup != null && e.index == 0) Positioned(right: 4, bottom: 4, child: DupBadge(dup.length)),
                         ]),
@@ -664,9 +741,39 @@ class _Header extends SliverPersistentHeaderDelegate {
       );
 }
 
+/// Header line of a framed block: who posted it, where, and how many pictures.
+class _GroupHeader extends StatelessWidget {
+  final Post post;
+  final int count;
+  final VoidCallback onTap;
+  const _GroupHeader(this.post, this.count, {required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final sub = showTileSub(effectiveSource(), post.subreddit) ? ' · r/${post.subreddit}' : '';
+    return InkWell(
+      onTap: onTap,
+      child: Row(children: [
+        Icon(Icons.collections_rounded, size: 16, color: cs.primary),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text('u/${post.author}$sub',
+              key: const Key('group-header'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: cs.onSurface)),
+        ),
+        Text('$count items', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+        const SizedBox(width: 4),
+      ]),
+    );
+  }
+}
+
 class _Badge extends StatelessWidget {
   final IconData icon;
-  const _Badge(this.icon);
+  const _Badge(this.icon, {super.key});
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(2),

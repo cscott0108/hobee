@@ -17,7 +17,7 @@ class Db {
 
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 8, onUpgrade: (db, o, n) async {
+    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 9, onUpgrade: (db, o, n) async {
       if (o < 2) await _v2(db);
       if (o < 3) await _v3(db);
       if (o < 4) await _v4(db);
@@ -25,6 +25,7 @@ class Db {
       if (o < 6) await _v6(db);
       if (o < 7) await _v7(db);
       if (o < 8) await _v8(db);
+      if (o < 9) await _v9(db);
     }, onCreate: (db, v) async {
       await db.execute('CREATE TABLE posts(source TEXT, id TEXT, created INTEGER, json TEXT, PRIMARY KEY(source,id))');
       await db.execute('CREATE INDEX idx_src_created ON posts(source, created)');
@@ -35,8 +36,14 @@ class Db {
       await _v5(db);
       await _v6(db);
       await _v8(db);
+      await _v9(db);
     });
     return _db!;
+  }
+
+  /// v9: media you downloaded (marked in grids and the viewer).
+  static Future<void> _v9(Database db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS downloads(url TEXT PRIMARY KEY, post_id TEXT, at INTEGER)');
   }
 
   /// v8: the private Hobees gallery (Phase 6): one row per saved file.
@@ -88,6 +95,56 @@ class Db {
     await db.execute('CREATE TABLE IF NOT EXISTS acct_meta(author TEXT PRIMARY KEY, post INTEGER, comment INTEGER, total INTEGER, nsfw INTEGER, fetched INTEGER)');
     await db.execute('CREATE TABLE IF NOT EXISTS author_mix(author TEXT, sub TEXT, n INTEGER, img INTEGER, vid INTEGER, gal INTEGER, txt INTEGER, nsfw INTEGER, titles TEXT, fetched INTEGER, PRIMARY KEY(author, sub))');
     await db.execute('CREATE TABLE IF NOT EXISTS sub_meta(sub TEXT PRIMARY KEY, nsfw REAL, fetched INTEGER)');
+  }
+
+  /// Removes from a Following list's saved feed the posts of one subreddit ([byAuthor] false) or one user
+  /// ([byAuthor] true), after it was unfollowed. Posts that still belong to the list through another follow
+  /// ([keep] says so) stay. Returns how many were removed.
+  static Future<int> dropPostsOf(String source, String name, {required bool byAuthor, bool Function(Post p)? keep}) async {
+    final d = await db;
+    final key = byAuthor ? 'author' : 'subreddit';
+    final want = name.toLowerCase();
+    var last = 0, removed = 0;
+    while (true) {
+      // Cheap text match first (the saved JSON has no spaces); then check the real field, case-insensitive.
+      final rows = await d.rawQuery(
+          'SELECT rowid AS r, id, json FROM posts WHERE source=? AND rowid > ? AND instr(lower(json), ?) > 0 ORDER BY rowid LIMIT ?',
+          [source, last, '"$key":"$want"', chunkRows]);
+      if (rows.isEmpty) break;
+      last = rows.last['r'] as int;
+      final b = d.batch();
+      for (final r in rows) {
+        final p = Post.fromJson(jsonDecode(r['json'] as String) as Map<String, dynamic>);
+        if (p == null) continue;
+        if ((byAuthor ? p.author : p.subreddit).toLowerCase() != want || (keep?.call(p) ?? false)) continue;
+        b.delete('posts', where: 'source=? AND id=?', whereArgs: [source, r['id']]);
+        removed++;
+      }
+      await b.commit(noResult: true);
+    }
+    return removed;
+  }
+
+  /// Removes every post of [source] that [keep] says no longer belongs (e.g. from follows removed before
+  /// unfollowing cleaned up). Reads in chunks. Returns how many were removed.
+  static Future<int> prunePosts(String source, bool Function(Post p) keep) async {
+    final d = await db;
+    var last = 0, removed = 0;
+    while (true) {
+      final rows = await d.rawQuery('SELECT rowid AS r, id, json FROM posts WHERE source=? AND rowid > ? ORDER BY rowid LIMIT ?',
+          [source, last, chunkRows]);
+      if (rows.isEmpty) break;
+      last = rows.last['r'] as int;
+      final b = d.batch();
+      for (final r in rows) {
+        final p = Post.fromJson(jsonDecode(r['json'] as String) as Map<String, dynamic>);
+        if (p == null || keep(p)) continue;
+        b.delete('posts', where: 'source=? AND id=?', whereArgs: [source, r['id']]);
+        removed++;
+      }
+      await b.commit(noResult: true);
+    }
+    return removed;
   }
 
   /// Rows per database read. One query result is copied whole across the platform channel, so a big feed

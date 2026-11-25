@@ -29,6 +29,7 @@ import 'sub_users.dart';
 import 'viewed.dart';
 import 'net_guard.dart';
 import 'net_ui.dart';
+import 'downloaded.dart';
 
 const accent = Color(0xFFE53935);
 final themeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
@@ -63,6 +64,7 @@ Future<void> _main() async {
   await _safe('subNav', () async => initSubNav());
   await _safe('viewed', Viewed.load);
   await _safe('follows', FollowStore.load);
+  await _safe('downloads', Downloaded.load);
   await _safe('background', BackgroundRefresh.load);
   // Older builds saved suggestion filter choices; they are gone now, so drop the key.
   await _safe('suggest', () async => sp.remove('suggestPrefs'));
