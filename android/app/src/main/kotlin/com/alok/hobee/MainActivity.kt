@@ -14,6 +14,7 @@ import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -23,6 +24,7 @@ import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.util.zip.Deflater
 import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 // FragmentActivity: the fingerprint / face prompt (local_auth) needs it.
@@ -62,6 +64,10 @@ class MainActivity : FlutterFragmentActivity() {
                             val uri = zip(call.argument<List<String>>("paths")!!, call.argument<List<String>>("names")!!,
                                 call.argument<String>("name")!!)
                             runOnUiThread { result.success(uri) }
+                        }
+                        "unzip" -> {
+                            val names = unzip(call.argument<String>("src")!!, call.argument<String>("dir")!!)
+                            runOnUiThread { result.success(names) }
                         }
                         else -> runOnUiThread { result.notImplemented() }
                     }
@@ -197,6 +203,29 @@ class MainActivity : FlutterFragmentActivity() {
             MediaScannerConnection.scanFile(this, arrayOf(f.absolutePath), arrayOf("application/zip"), null)
             return f.absolutePath
         }
+    }
+
+    /**
+     * Unpacks a Hobees backup ([src]: a content:// uri from the file picker or a file path) into [dir]. Only plain
+     * file names at the top level are written, never paths, so an entry can't land outside [dir].
+     */
+    private fun unzip(src: String, dir: String): List<String> {
+        val root = File(dir).canonicalFile
+        val input = if (src.startsWith("content://")) contentResolver.openInputStream(android.net.Uri.parse(src))
+                    else FileInputStream(src.removePrefix("file://"))
+        val out = ArrayList<String>()
+        ZipInputStream(BufferedInputStream(input ?: throw Exception("Can't open the file"))).use { z ->
+            while (true) {
+                val e = z.nextEntry ?: break
+                val name = e.name
+                if (e.isDirectory || name.contains('/') || name.contains('\\') || name.startsWith(".")) continue
+                val f = File(root, name).canonicalFile
+                if (f.parentFile != root) continue
+                FileOutputStream(f).use { z.copyTo(it) }
+                out.add(name)
+            }
+        }
+        return out
     }
 
     /**
