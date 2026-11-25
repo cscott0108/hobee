@@ -1,4 +1,5 @@
 import 'following.dart';
+import 'net_guard.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'archive.dart';
@@ -42,6 +43,7 @@ class Api {
 
   /// Fetch next page for source, cache it, return number of new posts. Returns -1 if done.
   static Future<int> fetchMore(String source, {bool fromStart = false}) async {
+    if (NetGuard.paused) throw const NetPausedException();
     if (isSubSearch(source)) return SubSearch.fetchMore(source, fromStart: fromStart);
     if (isDeep(source)) return Archive.fetchMore(source, fromStart: fromStart);
     if (isFollowing(source)) {

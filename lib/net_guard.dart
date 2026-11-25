@@ -233,6 +233,13 @@ class NetGuard {
   }
 }
 
+/// Thrown instead of loading while Wi-Fi safety has paused Hobees (the grid shows it with Retry).
+class NetPausedException implements Exception {
+  const NetPausedException();
+  @override
+  String toString() => 'Paused on an untrusted Wi-Fi. Use the banner at the top to continue.';
+}
+
 /// Every Dart web request (feeds, archive, images, downloads) goes through here. While Hobees is paused it is
 /// sent to a closed local port, so it fails at once instead of quietly using an untrusted network.
 class GuardedHttp extends HttpOverrides {

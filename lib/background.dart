@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 import 'following.dart';
 import 'follows.dart';
+import 'net_guard.dart';
 
 /// Settings → Background refresh: keeps the active Following profile up to date while the app is closed,
 /// using Android's WorkManager. Android picks the exact time (at least the chosen interval apart, later in
@@ -80,6 +81,9 @@ void backgroundDispatcher() {
   Workmanager().executeTask((task, input) async {
     DartPluginRegistrant.ensureInitialized();
     try {
+      // Wi-Fi safety: only on the connection last seen trusted (or mobile data if allowed). Never reads the
+      // Wi-Fi name in the background, so no 'location all the time' permission.
+      if (!await NetGuard.backgroundOk()) return true;
       return await BackgroundRefresh.run();
     } catch (e) {
       debugPrint('background refresh failed: $e');
