@@ -10,9 +10,14 @@ enum WindowRead { all, window, next }
 
 class Db {
   static Database? _db;
+
+  /// Test seam: tests give each test process its own file (test/flutter_test_config.dart), so test files
+  /// running side by side don't lock each other out of one shared database.
+  static String fileName = 'hobee.db';
+
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(p.join(await getDatabasesPath(), 'hobee.db'), version: 8, onUpgrade: (db, o, n) async {
+    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 8, onUpgrade: (db, o, n) async {
       if (o < 2) await _v2(db);
       if (o < 3) await _v3(db);
       if (o < 4) await _v4(db);

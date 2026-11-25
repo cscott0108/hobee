@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'db.dart';
@@ -101,6 +102,24 @@ class SavedStore {
   static Future<int> count() async {
     final r = await (await Db.db).rawQuery('SELECT COUNT(*) AS n FROM saved');
     return r.first['n'] as int? ?? 0;
+  }
+
+  /// Remembers a picture's size (measured from the file), so its tile keeps its shape. No reload.
+  static Future<void> setSize(int id, int w, int h) async =>
+      (await Db.db).update('saved', {'width': w, 'height': h}, where: 'id=?', whereArgs: [id]);
+
+  /// Width and height read from a picture file's header (no full decode), or null if it can't be read.
+  static Future<(int, int)?> imageSize(String path) async {
+    try {
+      final buf = await ui.ImmutableBuffer.fromFilePath(path);
+      final d = await ui.ImageDescriptor.encoded(buf);
+      final r = (d.width, d.height);
+      d.dispose();
+      buf.dispose();
+      return r.$1 > 0 && r.$2 > 0 ? r : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Deletes the files and their rows.

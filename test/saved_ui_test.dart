@@ -136,4 +136,50 @@ void main() {
     expect(find.text('Hobees gallery'), findsOneWidget, reason: 'the gallery page is on top');
     await t.pumpWidget(const SizedBox());
   });
+
+  testWidgets('menu: Export all exports everything without selecting', (t) async {
+    final s = await open(t);
+    await t.tap(find.byKey(const Key('gallery-menu')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('menu-export-all')));
+    await t.pumpAndSettle();
+    expect(find.text('Export 3 items'), findsOneWidget);
+    await t.tap(find.byKey(const Key('export-go')));
+    await settle(t);
+    expect(calls.where((c) => c.method == 'save').map((c) => c.arguments['path']), [for (final it in s) it.path]);
+    await t.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('menu: Back up writes one Hobees_backup zip with the list and every file', (t) async {
+    final s = await open(t);
+    await t.tap(find.byKey(const Key('gallery-menu')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('menu-backup')));
+    await t.pumpAndSettle();
+    expect(find.textContaining('app lock doesn'), findsOneWidget, reason: 'warns that the zip is outside the lock');
+    await t.tap(find.byKey(const Key('backup-go')));
+    await settle(t);
+    final z = calls.singleWhere((c) => c.method == 'zip');
+    expect(z.arguments['name'] as String, startsWith('Hobees_backup_'));
+    expect((z.arguments['names'] as List).first, 'hobees-gallery.json');
+    expect((z.arguments['paths'] as List).skip(1), [for (final it in s) it.path]);
+    await t.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('tiles keep the picture shape like the feeds (wide picture -> wide tile)', (t) async {
+    await t.runAsync(() async {
+      tmp = await Directory.systemTemp.createTemp('hobees_ui');
+      SavedStore.baseDir = () async => tmp;
+      await (await Db.db).delete('saved');
+      final f = await SavedStore.newFile('png');
+      await f.writeAsBytes([1]);
+      await SavedStore.add(SavedItem(path: f.path, kind: 'image', width: 200, height: 100, savedAt: 1));
+    });
+    addTearDown(() => t.runAsync(() => tmp.delete(recursive: true)));
+    await t.pumpWidget(const MaterialApp(home: SavedGalleryScreen()));
+    await settle(t);
+    final r = t.getSize(find.byKey(const Key('saved-tile-0')));
+    expect(r.width / r.height, closeTo(2, 0.1));
+    await t.pumpWidget(const SizedBox());
+  });
 }

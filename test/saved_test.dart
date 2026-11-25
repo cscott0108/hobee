@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/db.dart';
 import 'package:hobee/download.dart';
@@ -156,5 +157,14 @@ void main() {
       expect(got!.map((f) => f.path), [a.path, b.path]);
       expect(got!.map((f) => f.mimeType), ['image/png', 'video/mp4']);
     });
+  });
+
+  test('picture size is read from the file header (for tiles saved without a size)', () async {
+    final f = await SavedStore.newFile('png');
+    await f.writeAsBytes(img.encodePng(img.Image(width: 40, height: 20)));
+    expect(await SavedStore.imageSize(f.path), (40, 20));
+    final junk = await SavedStore.newFile('png');
+    await junk.writeAsBytes([1, 2, 3]);
+    expect(await SavedStore.imageSize(junk.path), isNull);
   });
 }
