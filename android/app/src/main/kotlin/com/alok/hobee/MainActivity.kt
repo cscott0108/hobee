@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.view.WindowManager
+import android.webkit.CookieManager
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -39,6 +40,13 @@ class MainActivity : FlutterFragmentActivity() {
                 result.success(null)
             } else {
                 result.notImplemented()
+            }
+        }
+        // Reddit session login (Phase 7): read the cookies the in-app login page set (webview_flutter can't).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/web").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "cookies" -> result.success(CookieManager.getInstance().getCookie(call.argument<String>("url")!!))
+                else -> result.notImplemented()
             }
         }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/media").setMethodCallHandler { call, result ->

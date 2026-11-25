@@ -57,6 +57,8 @@ dependencies:
   local_auth: 3.0.2
   # Share saved gallery items through the Android share sheet (Phase 6). Pinned to a release older than two weeks.
   share_plus: 13.3.1
+  # Reddit session login on Reddit's own page (Phase 7). Pinned to a release older than two weeks.
+  webview_flutter: 4.14.1
   # Hobees' own network helper (Wi-Fi safety, Phase 5b), in this repo.
   hobee_net:
     path: packages/hobee_net
