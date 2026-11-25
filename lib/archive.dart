@@ -169,7 +169,7 @@ class Archive {
     final n = now ?? DateTime.now();
     DateTime? t;
     final at = int.tryParse(headers['x-ratelimit-reset-at'] ?? '');
-    if (at != null) t = DateTime.fromMillisecondsSinceEpoch(at);
+    if (at != null) t = DateTime.fromMillisecondsSinceEpoch(at, isUtc: n.isUtc);
     final secs = int.tryParse(headers['x-ratelimit-reset'] ?? '');
     if (t == null && secs != null) t = n.add(Duration(seconds: secs));
     if (t == null) return null;
