@@ -16,7 +16,7 @@ class KeywordChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-        listenable: Listenable.merge([searchQuery, relevanceSort, currentSource, Rel.ready]),
+        listenable: Listenable.merge([searchQuery, relevanceSort, followingRelevance, currentSource, Rel.ready]),
         builder: (context, _) {
           final own = parseQuery(searchQuery.value);
           final fixed = Rel.sourceQuery();
@@ -31,8 +31,8 @@ class KeywordChips extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                   avatar: const Icon(Icons.auto_awesome, size: 16),
                   label: const Text('Relevance'),
-                  selected: relevanceSort.value,
-                  onSelected: (b) => relevanceSort.value = b,
+                  selected: relevanceOn,
+                  onSelected: (b) => relevanceOn = b,
                 ),
                 for (final t in fixed.terms) Chip(visualDensity: VisualDensity.compact, label: Text(_label(t))),
                 if (own.author != null) InputChip(visualDensity: VisualDensity.compact, label: Text('u/${own.author}'),

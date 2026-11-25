@@ -108,6 +108,19 @@ bool get sortable => currentSource.value == 'home' || currentSource.value.starts
 /// Sort by relevance while a keyword is present.
 final relevanceSort = ValueNotifier<bool>(true);
 
+/// The same choice for Following lists, where a search shows newest first unless you pick Relevance.
+final followingRelevance = ValueNotifier<bool>(false);
+
+/// Relevance order is on for the feed being shown.
+bool get relevanceOn => isFollowing(effectiveSource()) ? followingRelevance.value : relevanceSort.value;
+set relevanceOn(bool v) {
+  if (isFollowing(effectiveSource())) {
+    followingRelevance.value = v;
+  } else {
+    relevanceSort.value = v;
+  }
+}
+
 /// Relevance ranking for the current source and query. Small sets rank inline; big ones in an isolate.
 class Rel {
   static final ready = ValueNotifier<int>(0);
@@ -218,7 +231,7 @@ class Rel {
   }
 }
 
-final viewFilters = Listenable.merge([relevanceSort, Rel.ready, mediaFilter, statusFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone, hideAdult, srSort]);
+final viewFilters = Listenable.merge([relevanceSort, followingRelevance, Rel.ready, mediaFilter, statusFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone, hideAdult, srSort]);
 
 // ---- filters remembered per screen (home feeds vs Deep Search) ----
 String _scope = 'main';
@@ -441,7 +454,7 @@ List<Post> filterAndCount(List<Post> all) {
   }
   if (!_sameCounts(chipCounts.value, c)) chipCounts.value = c;
   if (sr) srSortList(out);
-  if (hits != null && relevanceSort.value) out.sort((a, b) => (hits[b.id]?.score ?? 0).compareTo(hits[a.id]?.score ?? 0));
+  if (hits != null && relevanceOn) out.sort((a, b) => (hits[b.id]?.score ?? 0).compareTo(hits[a.id]?.score ?? 0));
   return out;
 }
 

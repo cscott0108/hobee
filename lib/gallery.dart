@@ -1,4 +1,5 @@
 import 'following.dart';
+import 'follows.dart';
 import 'age.dart';
 import 'saved_ui.dart';
 import 'downloaded.dart';
@@ -115,6 +116,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   String? _matchKey;
   int _count = 0;
   bool _newWhileSearching = false;
+  Follow? _searched; // the followed channel this search named, being checked for new posts
   String get _searchKey => '${Rel.queryText()}|${dateRange.value}';
   bool get _big => _count > Db.windowMin;
   // On a big list a search the database can't narrow down (1–2 letters) only filters the posts already loaded.
@@ -278,7 +280,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
         _matchMore = more;
         _newWhileSearching = false;
         // A search naming a followed channel checks that channel next.
-        if (key != _matchKey && isFollowing(src)) Following.searchedFor(src, searchQuery.value).ignore();
+        if (key != _matchKey && isFollowing(src)) {
+          _searched = null;
+          Following.searchedFor(src, searchQuery.value).then((f) {
+            if (mounted && f != null && src == effectiveSource()) setState(() => _searched = f);
+          }).ignore();
+        }
       case WindowRead.all:
         all = fresh = await Db.load(src);
       case WindowRead.next:
@@ -407,7 +414,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     copies = cp;
     final e = flatten(shown);
     final secs = <_Section>[];
-    final rel = Rel.active && relevanceSort.value;
+    final rel = Rel.active && relevanceOn;
     final ranked = rel || (isSubSearch(effectiveSource()) && srSort.value != SrSort.newest);
     if (ranked && e.isNotEmpty) {
       final d = e.first.post.date.toLocal();
@@ -706,7 +713,22 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       style: TextStyle(fontSize: 12.5, color: cs.onSurfaceVariant)),
                 ),
               ),
-            if (_newWhileSearching && _matchKey != null)
+            if (_searched != null && _matchKey != null)
+              SliverToBoxAdapter(
+                child: SearchedChannelRow(
+                  source: effectiveSource(),
+                  channel: _searched!,
+                  onUpdate: () {
+                    setState(() => _newWhileSearching = false);
+                    _fromDb();
+                  },
+                  onRetry: () => Following.searchedFor(effectiveSource(), _searched!.label).ignore(),
+                  onDone: () {
+                    if (mounted) setState(() => _searched = null);
+                  },
+                ),
+              ),
+            if (_newWhileSearching && _matchKey != null && _searched == null)
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
@@ -914,5 +936,66 @@ class _Badge extends StatelessWidget {
         padding: const EdgeInsets.all(2),
         decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
         child: Icon(icon, color: Colors.white, size: 16),
+      );
+}
+
+/// Above search results: the followed channel the search named, while the refresher checks it for new posts
+/// (spinner), then what it found (new posts and pictures, with Update), that it's up to date, or why it failed.
+class SearchedChannelRow extends StatefulWidget {
+  final String source;
+  final Follow channel;
+  final VoidCallback onUpdate, onRetry, onDone;
+  const SearchedChannelRow({super.key, required this.source, required this.channel, required this.onUpdate, required this.onRetry, required this.onDone});
+  @override
+  State<SearchedChannelRow> createState() => _SearchedChannelRowState();
+}
+
+class _SearchedChannelRowState extends State<SearchedChannelRow> {
+  Timer? _hide;
+
+  @override
+  void dispose() {
+    _hide?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Listenable.merge([Following.checking, Following.lastCheck]),
+        builder: (context, _) {
+          final cs = Theme.of(context).colorScheme;
+          final k = widget.channel.key, name = widget.channel.label;
+          final last = Following.lastCheck.value;
+          final busy = Following.checking.value == k;
+          final waiting = !busy && Following.queued(widget.source, k);
+          Widget row(Widget lead, String text, {Widget? action}) => Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 8, 0),
+                child: Row(key: const Key('searched-channel'), children: [
+                  SizedBox(width: 18, height: 18, child: Center(child: lead)),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+                  ?action,
+                ]),
+              );
+          const spin = SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2));
+          if (busy) return row(spin, 'Checking $name for new posts…');
+          if (waiting) return row(spin, 'Waiting to check $name…');
+          if (last == null || last.key != k) return const SizedBox.shrink();
+          if (last.error != null) {
+            return row(Icon(Icons.error_outline, size: 18, color: cs.error), "Couldn't check $name: ${last.error}",
+                action: TextButton(key: const Key('searched-retry'), onPressed: widget.onRetry, child: const Text('Retry')));
+          }
+          if (last.posts == 0) {
+            _hide ??= Timer(const Duration(seconds: 4), widget.onDone);
+            return row(Icon(Icons.check_circle_outline, size: 18, color: cs.primary), '$name is up to date');
+          }
+          final m = last.media == 1 ? '1 picture or video' : '${last.media} pictures and videos';
+          return row(Icon(Icons.fiber_new_outlined, size: 18, color: cs.primary),
+              'Found ${last.posts} new post${last.posts == 1 ? '' : 's'} ($m) in $name',
+              action: TextButton(key: const Key('searched-update'), onPressed: () {
+                widget.onUpdate();
+                widget.onDone();
+              }, child: const Text('Update')));
+        },
       );
 }
