@@ -56,7 +56,41 @@ void main() {
     await d.delete('posts');
   });
 
-  test('a search naming a followed channel checks it next', () async {
+  test('typing a word letter by letter never reads more than 2,000 posts of a 50,000-post feed', () async {
+    final d = await Db.db;
+    await d.delete('posts');
+    const src = 'fol:typing';
+    final posts = [
+      for (var i = 0; i < 50000; i++)
+        i % 1000 == 0
+            ? post(i, sub: 'asianpussyass', title: 'tagged')
+            : i % 10 == 0
+                ? post(i, title: 'asian sunset $i') // 'asi', 'asia', 'asian' match these 5,000 too
+                : post(i, sub: 'sub${i % 300}', author: 'user${i % 500}'),
+    ];
+    for (var i = 0; i < posts.length; i += 5000) {
+      await Db.savePosts(src, posts.sublist(i, i + 5000));
+    }
+    const word = 'asianpussyass';
+    for (var n = 1; n <= word.length; n++) {
+      final typed = word.substring(0, n);
+      if (!dbSearchUsable(typed)) {
+        expect(n, lessThan(3), reason: '"$typed" is too short to search the whole list');
+        continue;
+      }
+      final q = dbSearch(typed);
+      final (hits, more) = await Db.loadMatchingCapped(src, anyOf: q.anyOf, cap: 2000);
+      expect(hits.length, lessThanOrEqualTo(2000), reason: '"$typed" read ${hits.length}');
+      if (n <= 5) expect(more, isTrue, reason: '"$typed" matches more than 2,000');
+      if (n == word.length) {
+        expect(hits, hasLength(50));
+        expect(more, isFalse);
+      }
+    }
+    await d.delete('posts');
+  });
+
+    test('a search naming a followed channel checks it next', () async {
     final d = await Db.db;
     for (final t in ['follows', 'profiles', 'cursors']) {
       await d.delete(t);

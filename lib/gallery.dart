@@ -116,7 +116,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
   int _count = 0;
   bool _newWhileSearching = false;
   String get _searchKey => '${Rel.queryText()}|${dateRange.value}';
-  bool get _bigSearch => _needAll && _count > Db.windowMin;
+  bool get _big => _count > Db.windowMin;
+  // On a big list a search the database can't narrow down (1–2 letters) only filters the posts already loaded.
+  bool get _shortSearch => _big && _needAll && dateRange.value == null && !dbSearchUsable(Rel.queryText());
+  bool get _readAll => _needAll && !_shortSearch;
+  bool get _bigSearch => _readAll && _big;
+  static const matchCap = 2000;
+  bool _matchMore = false;
 
   // Every feed (Following, subreddits, users, Deep Search, searches and date ranges) shows its posts
   // [resultStep] at a time, newest (or best) first, so duplicate grouping, picture checks and layout only cover
@@ -248,7 +254,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
     final src = effectiveSource();
     final n = await Db.count(src);
     _count = n;
-    final (kind, limit) = Db.windowRead(count: n, shown: _all.length, sameWindow: src == _allSrc && _windowed, needAll: _needAll, grow: grow);
+    instantSearchDelayMs = _big ? 600 : 250;
+    final (kind, limit) = Db.windowRead(count: n, shown: _all.length, sameWindow: src == _allSrc && _windowed, needAll: _readAll, grow: grow);
     final win = kind != WindowRead.all;
     final key = _bigSearch ? _searchKey : null;
     List<Post> all, fresh;
@@ -257,10 +264,18 @@ class _GalleryScreenState extends State<GalleryScreen> {
         // Only the posts that can match this search or date range, found by the database.
         final q = dbSearch(Rel.queryText());
         final r = dateRange.value;
-        all = fresh = await Db.loadMatching(src,
+        final (hits, more) = await Db.loadMatchingCapped(src,
             anyOf: q.anyOf, author: q.author, sub: q.sub,
             from: r == null ? null : r.start.millisecondsSinceEpoch ~/ 1000,
-            to: r == null ? null : r.end.add(const Duration(days: 1)).millisecondsSinceEpoch ~/ 1000);
+            to: r == null ? null : r.end.add(const Duration(days: 1)).millisecondsSinceEpoch ~/ 1000,
+            cap: matchCap);
+        // Typed on meanwhile: these results are already out of date, read for the new search instead.
+        if (!mounted || key != (_bigSearch ? _searchKey : null)) {
+          _rebuildSoon();
+          return;
+        }
+        all = fresh = hits;
+        _matchMore = more;
         _newWhileSearching = false;
         // A search naming a followed channel checks that channel next.
         if (key != _matchKey && isFollowing(src)) Following.searchedFor(src, searchQuery.value).ignore();
@@ -363,7 +378,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     _rebuildT?.cancel();
     if (!_active || !mounted) return;
     final wantKey = _bigSearch ? _searchKey : null;
-    if (!_dbLoading && ((_windowed && _needAll) || (_count > Db.windowMin && _matchKey != wantKey))) {
+    if (!_dbLoading && ((_windowed && _readAll) || (_big && _matchKey != wantKey))) {
       // Search and date ranges look through the whole feed (big ones through the database), not just the loaded
       // window; a changed or cleared search reads again.
       _dbLoading = true;
@@ -677,6 +692,18 @@ class _GalleryScreenState extends State<GalleryScreen> {
                   onCancel: () => setState(() => cancel = true),
                   bulkAdded: bulkAdded,
                   onShowText: () { mediaFilter.value = MediaFilter.text; applyLayout(PostLayout.card); },
+                ),
+              ),
+            if (_shortSearch || (_matchMore && _matchKey != null))
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                  child: Text(
+                      _shortSearch
+                          ? 'Type 3 or more letters to search the whole list (showing matches among the loaded posts)'
+                          : 'Showing the newest ${matchCap ~/ 1000},000 matches. Add a word to narrow it down.',
+                      key: const Key('search-hint'),
+                      style: TextStyle(fontSize: 12.5, color: cs.onSurfaceVariant)),
                 ),
               ),
             if (_newWhileSearching && _matchKey != null)

@@ -267,7 +267,13 @@ class Db {
   /// whole feed: every group in [anyOf] needs one of its words somewhere in the post (title, text, flair,
   /// subreddit, user, link), [author] and [sub] use the indexed columns, [from] / [to] (seconds) the date.
   /// The words are matched as plain lower-case text; the app still checks and ranks what comes back.
-  static Future<List<Post>> loadMatching(String source, {List<List<String>> anyOf = const [], String? author, String? sub, int? from, int? to}) {
+  static Future<List<Post>> loadMatching(String source, {List<List<String>> anyOf = const [], String? author, String? sub, int? from, int? to}) async =>
+      (await loadMatchingCapped(source, anyOf: anyOf, author: author, sub: sub, from: from, to: to, cap: 1 << 30)).$1;
+
+  /// Like [loadMatching], but reads at most the newest [cap] matches; the bool says whether there were more.
+  /// The database picks and orders the matches first, so only the ones shown are read and decoded.
+  static Future<(List<Post>, bool)> loadMatchingCapped(String source,
+      {List<List<String>> anyOf = const [], String? author, String? sub, int? from, int? to, int cap = 2000}) async {
     final w = <String>['source=?'];
     final args = <Object?>[source];
     if (author != null) { w.add('author=?'); args.add(author.toLowerCase()); }
@@ -279,7 +285,23 @@ class Db {
       w.add('(${List.filled(g.length, 'instr(lower(json), ?) > 0').join(' OR ')})');
       args.addAll(g);
     }
-    return _loadChunked(w.join(' AND '), args);
+    final d = await db;
+    final ids = [
+      for (final r in await d.rawQuery('SELECT rowid AS r FROM posts WHERE ${w.join(' AND ')} ORDER BY created DESC, id DESC LIMIT ?',
+          [...args, cap + 1]))
+        r['r'] as int
+    ];
+    final more = ids.length > cap;
+    final take = more ? ids.sublist(0, cap) : ids;
+    final out = <Post>[];
+    for (var i = 0; i < take.length; i += chunkRows) {
+      final part = take.sublist(i, i + chunkRows > take.length ? take.length : i + chunkRows);
+      final rows = await d.rawQuery('SELECT json FROM posts WHERE rowid IN (${List.filled(part.length, '?').join(',')})', part);
+      final raw = [for (final r in rows) r['json'] as String];
+      out.addAll(raw.length > 150 ? await compute(_decodeAll, raw) : _decodeAll(raw));
+    }
+    out.sort((a, b) => b.created.compareTo(a.created));
+    return (out, more);
   }
 
   /// Every cached post once (by id), newest first. Decoded off the UI thread.

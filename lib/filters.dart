@@ -468,6 +468,12 @@ List<Post> filterAndCount(List<Post> all) {
   return (anyOf: [for (final g in groups.values) if (g.isNotEmpty) g], author: q.author, sub: q.sub);
 }
 
+/// True when [dbSearch] of [query] can narrow a big feed down (a word of 3+ letters, or a u/ or r/ filter).
+bool dbSearchUsable(String query) {
+  final q = dbSearch(query);
+  return q.anyOf.isNotEmpty || q.author != null || q.sub != null;
+}
+
 bool _sameCounts(Map<Object, int> a, Map<Object, int> b) => a.length == b.length && a.entries.every((e) => b[e.key] == e.value);
 
 /// Pages older listings until the oldest cached post is older than [start], or the listing ends.
