@@ -24,7 +24,8 @@ void main() {
     expect(d(homeWifi), NetDecision.allow);
     expect(d(lookAlike), NetDecision.pause, reason: 'same name, different router: a look-alike is not trusted');
     expect(d(hidden), NetDecision.pause, reason: 'name hidden (no permission): fail closed');
-    expect(home.matches(const NetInfo(NetType.wifi, ssid: 'HomeNet', bssid: 'AA:BB:CC:DD:EE:01'.toLowerCase())), isTrue);
+    expect(home.matches(NetInfo.fromMap(const {'type': 'wifi', 'ssid': 'HomeNet', 'bssid': 'AA:BB:CC:DD:EE:01'})), isTrue,
+        reason: 'router ids are compared without case');
     expect(home.matches(const NetInfo(NetType.wifi, ssid: 'homenet', bssid: 'aa:bb:cc:dd:ee:01')), isFalse, reason: 'names are exact');
   });
 
