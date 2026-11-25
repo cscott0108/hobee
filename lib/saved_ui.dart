@@ -1,5 +1,7 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'gallery_backup.dart';
 import 'gallery_export.dart';
 import 'saved.dart';
 import 'viewer.dart';
@@ -134,8 +136,8 @@ class _SavedGalleryScreenState extends State<SavedGalleryScreen> {
 
   /// Asks how to export the selection: individual files to the phone gallery or one .zip, and whether to
   /// remove them from Hobees afterwards.
-  Future<void> _exportDialog() async {
-    final list = chosen;
+  Future<void> _exportDialog([List<SavedItem>? items]) async {
+    final list = items ?? chosen;
     var mode = ExportMode.files;
     var remove = false;
     final go = await showDialog<bool>(
@@ -195,6 +197,52 @@ class _SavedGalleryScreenState extends State<SavedGalleryScreen> {
     }
   }
 
+  /// One .zip in Downloads with everything, for a new phone or after reinstalling.
+  Future<void> _backup() async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Back up gallery'),
+        content: const Text('Saves everything as one .zip in Downloads. Restore it here after reinstalling or on a new phone.\n\n'
+            "The .zip sits outside Hobees, so the app lock doesn't cover it: anyone with access to your files can open it. "
+            'Move it somewhere safe.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+          TextButton(key: const Key('backup-go'), onPressed: () => Navigator.pop(d, true), child: const Text('Back up')),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    final m = ScaffoldMessenger.of(context);
+    setState(() => busy = true);
+    try {
+      await GalleryBackup.backup();
+      m.showSnackBar(SnackBar(content: Text('Backed up ${items?.length ?? 0} items to Downloads')));
+    } catch (e) {
+      m.showSnackBar(SnackBar(content: Text('Backup failed: $e')));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _restore() async {
+    final m = ScaffoldMessenger.of(context);
+    try {
+      final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['zip']);
+      if (files.isEmpty) return;
+      final f = files.first;
+      if (mounted) setState(() => busy = true);
+      final r = await GalleryBackup.restore(f.path ?? f.uri.toString());
+      m.showSnackBar(SnackBar(content: Text('Restored ${r.added}${r.skipped > 0 ? ' (${r.skipped} were already here)' : ''}')));
+    } on FormatException catch (e) {
+      m.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      m.showSnackBar(SnackBar(content: Text('Restore failed: $e')));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final list = items;
@@ -219,7 +267,25 @@ class _SavedGalleryScreenState extends State<SavedGalleryScreen> {
                   IconButton(key: const Key('sel-delete'), tooltip: 'Delete', icon: const Icon(Icons.delete_outline), onPressed: busy ? null : _delete),
                 ],
               )
-            : AppBar(title: Text(list == null || list.isEmpty ? 'Hobees gallery' : 'Hobees gallery · ${list.length}')),
+            : AppBar(
+                title: Text(list == null || list.isEmpty ? 'Hobees gallery' : 'Hobees gallery · ${list.length}'),
+                actions: [
+                  PopupMenuButton<String>(
+                    key: const Key('gallery-menu'),
+                    enabled: !busy,
+                    onSelected: (v) => switch (v) {
+                      'export' => _exportDialog(list ?? const []),
+                      'backup' => _backup(),
+                      _ => _restore(),
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(key: const Key('menu-export-all'), value: 'export', enabled: list?.isNotEmpty ?? false, child: const Text('Export all…')),
+                      PopupMenuItem(key: const Key('menu-backup'), value: 'backup', enabled: list?.isNotEmpty ?? false, child: const Text('Back up gallery…')),
+                      const PopupMenuItem(key: Key('menu-restore'), value: 'restore', child: Text('Restore from backup…')),
+                    ],
+                  ),
+                ],
+              )),
         body: Column(children: [
           if (busy) const LinearProgressIndicator(),
           Expanded(

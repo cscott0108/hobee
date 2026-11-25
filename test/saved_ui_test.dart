@@ -136,4 +136,33 @@ void main() {
     expect(find.text('Hobees gallery'), findsOneWidget, reason: 'the gallery page is on top');
     await t.pumpWidget(const SizedBox());
   });
+
+  testWidgets('menu: Export all exports everything without selecting', (t) async {
+    final s = await open(t);
+    await t.tap(find.byKey(const Key('gallery-menu')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('menu-export-all')));
+    await t.pumpAndSettle();
+    expect(find.text('Export 3 items'), findsOneWidget);
+    await t.tap(find.byKey(const Key('export-go')));
+    await settle(t);
+    expect(calls.where((c) => c.method == 'save').map((c) => c.arguments['path']), [for (final it in s) it.path]);
+    await t.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('menu: Back up writes one Hobees_backup zip with the list and every file', (t) async {
+    final s = await open(t);
+    await t.tap(find.byKey(const Key('gallery-menu')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('menu-backup')));
+    await t.pumpAndSettle();
+    expect(find.textContaining('app lock doesn'), findsOneWidget, reason: 'warns that the zip is outside the lock');
+    await t.tap(find.byKey(const Key('backup-go')));
+    await settle(t);
+    final z = calls.singleWhere((c) => c.method == 'zip');
+    expect(z.arguments['name'] as String, startsWith('Hobees_backup_'));
+    expect((z.arguments['names'] as List).first, 'hobees-gallery.json');
+    expect((z.arguments['paths'] as List).skip(1), [for (final it in s) it.path]);
+    await t.pumpWidget(const SizedBox());
+  });
 }
