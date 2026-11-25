@@ -423,7 +423,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           valueListenable: hideGone,
           builder: (_, on, _) => SwitchListTile(
             title: const Text('Hide gone pictures'),
-            subtitle: const Text('Deep Search skips tiles whose picture was deleted everywhere.'),
+            subtitle: const Text('Deep Search and Following skip tiles whose picture was deleted.'),
             value: on,
             onChanged: (v) => hideGone.value = v,
           ),

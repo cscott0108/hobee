@@ -568,7 +568,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
                               : Image.network(e.item.thumb, fit: BoxFit.cover, cacheWidth: 360, gaplessPlayback: true,
                                   semanticLabel: e.post.title,
                                   frameBuilder: (_, child, frame, sync) => sync ? child : AnimatedOpacity(opacity: frame == null ? 0 : 1, duration: const Duration(milliseconds: 180), child: child),
-                                  errorBuilder: (_, _, _) => Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.broken_image))),
+                                  errorBuilder: (_, err, _) {
+                                    // Deleted picture (404/410): 'Hide gone images' drops the tile, as in Deep Search.
+                                    if (e.index == 0 && isGoneError(err)) {
+                                      WidgetsBinding.instance.addPostFrameCallback((_) => MediaCheck.markGone(e.post.id));
+                                    }
+                                    return Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.broken_image));
+                                  }),
                           // Bottom left: where the post came from (mixed feeds only), then the author or archive status.
                           if (deep || e.index == 0)
                             Positioned(

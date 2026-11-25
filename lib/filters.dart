@@ -6,6 +6,7 @@ import 'viewed.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'archive.dart';
+import 'following.dart';
 import 'clean.dart';
 import 'find.dart';
 import 'find_ui.dart';
@@ -667,7 +668,7 @@ Future<void> showFilterSheet(BuildContext context) => _sheet(context, (ctx) => L
           const Divider(),
           _row(ctx, Icons.filter_none, 'Hide duplicates', () => dupesNotifier.value = !dupesNotifier.value,
               trailing: Switch(value: dupesOn, onChanged: (v) => dupesNotifier.value = v)),
-          if (currentSource.value.startsWith('deep:'))
+          if (currentSource.value.startsWith('deep:') || isFollowing(effectiveSource()))
             _row(ctx, Icons.hide_image_outlined, 'Hide gone images', () => hideGone.value = !hideGone.value,
                 trailing: Switch(value: hideGone.value, onChanged: (v) => hideGone.value = v)),
           _row(ctx, Icons.date_range, r == null ? 'Date range…' : '${_d(r.start)} to ${_d(r.end)}', () async {
