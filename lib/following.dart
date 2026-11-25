@@ -201,6 +201,29 @@ class Following {
     return posts.length;
   }
 
+  /// A search on a Following list names one of its channels ("asianpussyass", "r/name" or "u/name"): check that
+  /// channel next, even if it isn't due, so the search shows its newest posts. Returns the channel, or null.
+  static Future<Follow?> searchedFor(String source, String query) async {
+    final pid = followingProfile(source);
+    if (pid == null) return null;
+    final q = query.trim().toLowerCase();
+    final m = RegExp(r'^/?([ru])/([a-z0-9_-]+)$').firstMatch(q) ?? RegExp(r'^()([a-z0-9_-]{3,})$').firstMatch(q);
+    if (m == null) return null;
+    final kind = m.group(1), name = m.group(2)!;
+    final f = (await FollowStore.follows(pid)).where((x) =>
+        x.name.toLowerCase() == name &&
+        (kind == null || kind.isEmpty || (kind == 'r') == (x.kind == FollowKind.sub))).firstOrNull;
+    if (f == null) return null;
+    final queue = _round.putIfAbsent(source, () => []);
+    queue.removeWhere((x) => x.key == f.key);
+    queue.insert(0, f);
+    _checked.putIfAbsent(source, () => (0, 0, 0));
+    _retried.putIfAbsent(source, () => {});
+    _filled.putIfAbsent(source, () => {});
+    FollowingRefresher.start(source);
+    return f;
+  }
+
   /// Moves the follow for [author] (or else subreddit [sub]) to the front of every running refresh round.
   static void bump({String? author, String? sub}) {
     final kind = author != null ? FollowKind.user : FollowKind.sub;

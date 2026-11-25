@@ -445,6 +445,29 @@ List<Post> filterAndCount(List<Post> all) {
   return out;
 }
 
+/// What the database can pre-filter for a search: one group of words per search term (any word of a group
+/// may match; "a OR b" puts both in one group), each cut to its start so plurals and endings still match
+/// ("kitties" looks for "kitti"); words under 3 letters, phrases' short words and excluded terms are left to
+/// the app. Plus the u/ and r/ filters.
+({List<List<String>> anyOf, String? author, String? sub}) dbSearch(String query) {
+  final q = parseQuery(query);
+  String stem(String w) => w.length <= 4 ? w : w.substring(0, (w.length - 2) < 4 ? 4 : w.length - 2);
+  final groups = <int, List<String>>{};
+  for (final t in q.pos) {
+    final words = [for (final w in t.words) if (w.length >= 3) w];
+    if (words.isEmpty) {
+      groups[t.group] = const []; // a group with an unusable term can't be narrowed down
+      continue;
+    }
+    // A phrase: its longest word is enough to narrow down.
+    final w = words.reduce((a, b) => b.length > a.length ? b : a);
+    final g = groups[t.group];
+    if (g != null && g.isEmpty) continue;
+    (groups[t.group] ??= []).add(stem(w));
+  }
+  return (anyOf: [for (final g in groups.values) if (g.isNotEmpty) g], author: q.author, sub: q.sub);
+}
+
 bool _sameCounts(Map<Object, int> a, Map<Object, int> b) => a.length == b.length && a.entries.every((e) => b[e.key] == e.value);
 
 /// Pages older listings until the oldest cached post is older than [start], or the listing ends.

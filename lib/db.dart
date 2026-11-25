@@ -263,6 +263,25 @@ class Db {
     return out;
   }
 
+  /// Posts of [source] that can match a search, newest first, found by the database instead of reading the
+  /// whole feed: every group in [anyOf] needs one of its words somewhere in the post (title, text, flair,
+  /// subreddit, user, link), [author] and [sub] use the indexed columns, [from] / [to] (seconds) the date.
+  /// The words are matched as plain lower-case text; the app still checks and ranks what comes back.
+  static Future<List<Post>> loadMatching(String source, {List<List<String>> anyOf = const [], String? author, String? sub, int? from, int? to}) {
+    final w = <String>['source=?'];
+    final args = <Object?>[source];
+    if (author != null) { w.add('author=?'); args.add(author.toLowerCase()); }
+    if (sub != null) { w.add('sub=?'); args.add(sub.toLowerCase()); }
+    if (from != null) { w.add('created>=?'); args.add(from); }
+    if (to != null) { w.add('created<?'); args.add(to); }
+    for (final g in anyOf) {
+      if (g.isEmpty) continue;
+      w.add('(${List.filled(g.length, 'instr(lower(json), ?) > 0').join(' OR ')})');
+      args.addAll(g);
+    }
+    return _loadChunked(w.join(' AND '), args);
+  }
+
   /// Every cached post once (by id), newest first. Decoded off the UI thread.
   static Future<List<Post>> loadEverything() => _loadChunked('1=1', const [], onePerId: true);
 

@@ -110,6 +110,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
   String? _allSrc;
   bool get _needAll => Rel.queryText().trim().isNotEmpty || dateRange.value != null;
 
+  // A big feed with a search or date range reads only the posts that can match (found by the database), not
+  // the whole feed. [_matchKey] is the search those posts were read for (null: not a filtered read).
+  String? _matchKey;
+  int _count = 0;
+  bool _newWhileSearching = false;
+  String get _searchKey => '${Rel.queryText()}|${dateRange.value}';
+  bool get _bigSearch => _needAll && _count > Db.windowMin;
+
   // Every feed (Following, subreddits, users, Deep Search, searches and date ranges) shows its posts
   // [resultStep] at a time, newest (or best) first, so duplicate grouping, picture checks and layout only cover
   // what's shown. Scrolling near the end shows the next step of what's loaded, then reads or fetches more.
@@ -239,10 +247,23 @@ class _GalleryScreenState extends State<GalleryScreen> {
   Future<void> _fromDb({bool grow = false}) async {
     final src = effectiveSource();
     final n = await Db.count(src);
+    _count = n;
     final (kind, limit) = Db.windowRead(count: n, shown: _all.length, sameWindow: src == _allSrc && _windowed, needAll: _needAll, grow: grow);
     final win = kind != WindowRead.all;
+    final key = _bigSearch ? _searchKey : null;
     List<Post> all, fresh;
     switch (kind) {
+      case WindowRead.all when key != null:
+        // Only the posts that can match this search or date range, found by the database.
+        final q = dbSearch(Rel.queryText());
+        final r = dateRange.value;
+        all = fresh = await Db.loadMatching(src,
+            anyOf: q.anyOf, author: q.author, sub: q.sub,
+            from: r == null ? null : r.start.millisecondsSinceEpoch ~/ 1000,
+            to: r == null ? null : r.end.add(const Duration(days: 1)).millisecondsSinceEpoch ~/ 1000);
+        _newWhileSearching = false;
+        // A search naming a followed channel checks that channel next.
+        if (key != _matchKey && isFollowing(src)) Following.searchedFor(src, searchQuery.value).ignore();
       case WindowRead.all:
         all = fresh = await Db.load(src);
       case WindowRead.next:
@@ -252,6 +273,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         all = fresh = await Db.loadPage(src, limit: limit);
     }
     if (!mounted || src != effectiveSource()) return;
+    _matchKey = key;
     _all = all;
     _allSrc = src;
     _windowed = win;
@@ -297,6 +319,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// The Following refresher saved posts: reload from the database (at most every 1.5 s), keeping the view in place.
   void _followingSaved() {
     if (!isFollowing(effectiveSource())) return;
+    if (_matchKey != null) {
+      // Searching a big feed: don't re-read under the results; offer to update instead.
+      if (!_newWhileSearching && mounted) setState(() => _newWhileSearching = true);
+      return;
+    }
     // A windowed feed reloads only its window, and less often, so scrolling stays smooth while a refresh runs.
     // While a search or date range looks through the whole feed, every reload re-reads and re-ranks all of it,
     // so new posts join less often.
@@ -335,8 +362,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
   void _rebuild() {
     _rebuildT?.cancel();
     if (!_active || !mounted) return;
-    if (_windowed && _needAll && !_dbLoading) {
-      // Search and date ranges look through the whole feed, not just the loaded window.
+    final wantKey = _bigSearch ? _searchKey : null;
+    if (!_dbLoading && ((_windowed && _needAll) || (_count > Db.windowMin && _matchKey != wantKey))) {
+      // Search and date ranges look through the whole feed (big ones through the database), not just the loaded
+      // window; a changed or cleared search reads again.
       _dbLoading = true;
       _fromDb().whenComplete(() {
         if (mounted) setState(() => _dbLoading = false);
@@ -648,6 +677,25 @@ class _GalleryScreenState extends State<GalleryScreen> {
                   onCancel: () => setState(() => cancel = true),
                   bulkAdded: bulkAdded,
                   onShowText: () { mediaFilter.value = MediaFilter.text; applyLayout(PostLayout.card); },
+                ),
+              ),
+            if (_newWhileSearching && _matchKey != null)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                  child: Row(children: [
+                    Icon(Icons.fiber_new_outlined, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    const Expanded(child: Text('New posts were saved since this search', style: TextStyle(fontSize: 13))),
+                    TextButton(
+                      key: const Key('search-update'),
+                      onPressed: () {
+                        setState(() => _newWhileSearching = false);
+                        _fromDb();
+                      },
+                      child: const Text('Update'),
+                    ),
+                  ]),
                 ),
               ),
             if (seeking)
