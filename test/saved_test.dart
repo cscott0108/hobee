@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/db.dart';
 import 'package:hobee/download.dart';
+import 'package:hobee/gallery_export.dart';
 import 'package:hobee/models.dart';
 import 'package:hobee/saved.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -110,6 +111,50 @@ void main() {
       expect(save.arguments['video'], false);
       expect(save.arguments['name'] as String, matches(RegExp(r'^\d{8}_\d{6}\.png$')));
       expect(await SavedStore.count(), 0);
+    });
+  });
+
+  group('export', () {
+    final t1 = DateTime(2026, 11, 24, 21, 5, 9).millisecondsSinceEpoch;
+
+    test('to the phone gallery: one MediaStore save per item, with the saved-time name and the right type', () async {
+      final a = await put('png', t1);
+      final b = await put('mp4', t1 + 60000, kind: 'video');
+      final done = await GalleryExport.toPhone([a, b]);
+      expect(done, hasLength(2));
+      final saves = calls.where((c) => c.method == 'save').toList();
+      expect(saves.map((c) => c.arguments['path']), [a.path, b.path]);
+      expect(saves.map((c) => c.arguments['name']), ['20261124_210509.png', '20261124_210609.mp4']);
+      expect(saves.map((c) => c.arguments['mime']), ['image/png', 'video/mp4']);
+      expect(saves.map((c) => c.arguments['video']), [false, true]);
+      expect(await SavedStore.count(), 2, reason: 'export keeps them in Hobees unless you choose to remove them');
+    });
+
+    test('as one zip: every file, unique names inside, a Hobees_ zip name', () async {
+      final a = await put('jpg', t1);
+      final b = await put('jpg', t1 + 300); // same second
+      final c = await put('mp4', t1 + 5000, kind: 'video');
+      final out = await GalleryExport.toZip([a, b, c]);
+      expect(out, 'content://downloads/1');
+      final z = calls.singleWhere((c) => c.method == 'zip');
+      expect(z.arguments['paths'], [a.path, b.path, c.path]);
+      expect(z.arguments['names'], ['20261124_210509.jpg', '20261124_210509_1.jpg', '20261124_210514.mp4']);
+      expect(z.arguments['name'] as String, matches(RegExp(r'^Hobees_\d{8}_\d{6}\.zip$')));
+      expect(calls.where((c) => c.method == 'save'), isEmpty);
+    });
+
+    test('share hands the files and their types to the share sheet', () async {
+      final a = await put('png', t1);
+      final b = await put('mp4', t1, kind: 'video');
+      List<dynamic>? got;
+      final keep = GalleryExport.shareFiles;
+      GalleryExport.shareFiles = (f) async {
+        got = f;
+      };
+      addTearDown(() => GalleryExport.shareFiles = keep);
+      await GalleryExport.share([a, b]);
+      expect(got!.map((f) => f.path), [a.path, b.path]);
+      expect(got!.map((f) => f.mimeType), ['image/png', 'video/mp4']);
     });
   });
 }

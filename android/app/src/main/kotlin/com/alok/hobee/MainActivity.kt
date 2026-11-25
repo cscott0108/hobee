@@ -14,10 +14,16 @@ import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.OutputStream
 import java.nio.ByteBuffer
+import java.util.zip.Deflater
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 // FragmentActivity: the fingerprint / face prompt (local_auth) needs it.
 class MainActivity : FlutterFragmentActivity() {
@@ -50,6 +56,11 @@ class MainActivity : FlutterFragmentActivity() {
                         "save" -> {
                             val uri = save(call.argument<String>("path")!!, call.argument<String>("name")!!,
                                 call.argument<String>("mime")!!, call.argument<Boolean>("video")!!)
+                            runOnUiThread { result.success(uri) }
+                        }
+                        "zip" -> {
+                            val uri = zip(call.argument<List<String>>("paths")!!, call.argument<List<String>>("names")!!,
+                                call.argument<String>("name")!!)
                             runOnUiThread { result.success(uri) }
                         }
                         else -> runOnUiThread { result.notImplemented() }
@@ -134,6 +145,56 @@ class MainActivity : FlutterFragmentActivity() {
             val f = File(d, freeName(base) { File(d, it).exists() })
             File(path).copyTo(f, overwrite = true)
             MediaScannerConnection.scanFile(this, arrayOf(f.absolutePath), arrayOf(mime), null)
+            return f.absolutePath
+        }
+    }
+
+    /**
+     * One .zip in Downloads/ with [paths] stored under [names] (Hobees gallery export). Stored, not compressed:
+     * pictures and videos are already compressed, so this is fast and the zip is about the same size.
+     */
+    private fun zip(paths: List<String>, names: List<String>, base: String): String {
+        fun write(o: OutputStream) {
+            ZipOutputStream(BufferedOutputStream(o)).use { z ->
+                z.setLevel(Deflater.NO_COMPRESSION)
+                for (i in paths.indices) {
+                    z.putNextEntry(ZipEntry(names[i]))
+                    FileInputStream(paths[i]).use { it.copyTo(z) }
+                    z.closeEntry()
+                }
+            }
+        }
+        val dir = Environment.DIRECTORY_DOWNLOADS
+        if (Build.VERSION.SDK_INT >= 29) {
+            val coll = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val name = freeName(base) { taken(coll, dir, it) }
+            val v = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(MediaStore.MediaColumns.MIME_TYPE, "application/zip")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "$dir/")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(coll, v) ?: throw Exception("MediaStore insert failed")
+            try {
+                contentResolver.openOutputStream(uri)!!.use { write(it) }
+            } catch (e: Exception) {
+                contentResolver.delete(uri, null, null) // no half-written zip left behind
+                throw e
+            }
+            v.clear(); v.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            contentResolver.update(uri, v, null, null)
+            return uri.toString()
+        } else {
+            @Suppress("DEPRECATION")
+            val d = Environment.getExternalStoragePublicDirectory(dir).apply { mkdirs() }
+            val f = File(d, freeName(base) { File(d, it).exists() })
+            try {
+                FileOutputStream(f).use { write(it) }
+            } catch (e: Exception) {
+                f.delete()
+                throw e
+            }
+            MediaScannerConnection.scanFile(this, arrayOf(f.absolutePath), arrayOf("application/zip"), null)
             return f.absolutePath
         }
     }

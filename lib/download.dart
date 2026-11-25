@@ -22,6 +22,9 @@ class Downloader {
     return f;
   }
 
+  /// Storage permission for saving to shared folders (only asked on Android 9 and older).
+  static Future<void> askStorage() => _perm();
+
   static Future<void> _perm() async {
     if (Platform.isAndroid) {
       final info = await _ch.invokeMethod<int>('sdk').catchError((_) => 99);

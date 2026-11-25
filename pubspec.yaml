@@ -55,6 +55,8 @@ dependencies:
   workmanager: 0.10.10
   # App lock: fingerprint / face / phone screen lock (Phase 5a). Pinned to a release older than two weeks.
   local_auth: 3.0.2
+  # Share saved gallery items through the Android share sheet (Phase 6). Pinned to a release older than two weeks.
+  share_plus: 11.0.0
 dev_dependencies:
   flutter_launcher_icons: ^0.14.1
   flutter_test:
