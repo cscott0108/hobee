@@ -2,6 +2,7 @@ import 'error_text.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show NetworkImageLoadException;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
@@ -101,6 +102,9 @@ bool isDeep(String source) => source.startsWith('deep:');
   final i = s.indexOf('@');
   return i < 0 ? (s, null) : (s.substring(0, i), s.substring(i + 1));
 }
+
+/// True when an image load failed because the file was deleted (HTTP 404 / 410), not for being offline or rate limited.
+bool isGoneError(Object err) => err is NetworkImageLoadException && (err.statusCode == 404 || err.statusCode == 410);
 
 bool isLive(Post p) => p.raw['_hobee_live'] == true;
 bool isRemoved(Post p) {

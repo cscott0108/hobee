@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'embeds.dart';
 import 'models.dart';
+import 'saved.dart';
 import 'screen_awake.dart';
 
 /// Player settings, saved.
@@ -74,8 +76,13 @@ final viewerChromeInset = ValueNotifier<double>(0);
 /// to re-blur on every zoom frame) and, for videos, stops swiping to the next item until you zoom out.
 final viewerZoomed = ValueNotifier<bool>(false);
 
+/// Whether the current video's controls are showing. The video takes every tap, so the viewer shows and
+/// hides its title bar and user / subreddit chips together with the controls.
+final videoControlsShown = ValueNotifier<bool>(true);
+
 /// Sources to try in order: HLS (has sound) or the resolved mp4, then the plain mp4, then Reddit's preview clip.
 Future<List<(String, bool)>> videoSources(MediaItem it) async {
+  if (isLocalPath(it.url)) return [(it.url, false)]; // a saved file (Hobees gallery)
   final out = <(String, bool)>[];
   final hls = it.hls ?? Embeds.redditHls(it.url);
   if (hls != null) out.add((hls, true));
@@ -153,8 +160,10 @@ class _VideoPageState extends State<VideoPage> {
     final srcs = await videoSources(widget.item);
     Object? last;
     for (final (u, hls) in srcs) {
-      final ctrl = VideoPlayerController.networkUrl(Uri.parse(u),
-          formatHint: hls ? VideoFormat.hls : null, httpHeaders: const {'User-Agent': Embeds.ua});
+      final ctrl = isLocalPath(u)
+          ? VideoPlayerController.file(File(u))
+          : VideoPlayerController.networkUrl(Uri.parse(u),
+              formatHint: hls ? VideoFormat.hls : null, httpHeaders: const {'User-Agent': Embeds.ua});
       try {
         await ctrl.initialize();
         await ctrl.setLooping(VideoPrefs.loop.value);
@@ -200,12 +209,17 @@ class _VideoPageState extends State<VideoPage> {
   void _autoHide() {
     hide?.cancel();
     hide = Timer(const Duration(seconds: 3), () {
-      if (mounted && (c?.value.isPlaying ?? false) && !dragging) setState(() => ui = false);
+      if (mounted && (c?.value.isPlaying ?? false) && !dragging) _setUi(false);
     });
   }
 
+  void _setUi(bool v) {
+    setState(() => ui = v);
+    if (widget.active) videoControlsShown.value = v;
+  }
+
   void _toggleUi() {
-    setState(() => ui = !ui);
+    _setUi(!ui);
     if (ui) _autoHide();
   }
 
@@ -245,6 +259,7 @@ class _VideoPageState extends State<VideoPage> {
     super.didUpdateWidget(old);
     if (widget.active == old.active) return;
     if (widget.active) {
+      ui = true; // controls show again when you swipe back to this video (the viewer's panels show with them)
       if (c == null) {
         _init();
       } else {

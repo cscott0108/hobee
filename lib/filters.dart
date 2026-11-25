@@ -6,6 +6,7 @@ import 'viewed.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'archive.dart';
+import 'following.dart';
 import 'clean.dart';
 import 'find.dart';
 import 'find_ui.dart';
@@ -19,6 +20,7 @@ import 'models.dart';
 import 'source_bar.dart';
 import 'nav.dart';
 import 'sub_search.dart';
+import 'saved.dart';
 
 enum MediaFilter { all, images, videos, galleries, text, links, documents }
 
@@ -257,6 +259,8 @@ Future<void> loadFilterPrefs() async {
   saveOriginalBytes.value = sp.getBool('saveOriginalBytes') ?? false;
   saveOriginalBytes.addListener(() => sp.setBool('saveOriginalBytes', saveOriginalBytes.value));
   cleanDownloads.addListener(() => sp.setBool('cleanDownloads', cleanDownloads.value));
+  saveTo.value = sp.getString('saveTo') == 'phone' ? SaveTo.phone : SaveTo.hobees;
+  saveTo.addListener(() => sp.setString('saveTo', saveTo.value.name));
   originalQuality.addListener(() => sp.setBool('originalQuality', originalQuality.value));
   originalShapeGrid.value = sp.getBool('originalShapeGrid') ?? true;
   originalShapeGrid.addListener(() => sp.setBool('originalShapeGrid', originalShapeGrid.value));
@@ -664,7 +668,7 @@ Future<void> showFilterSheet(BuildContext context) => _sheet(context, (ctx) => L
           const Divider(),
           _row(ctx, Icons.filter_none, 'Hide duplicates', () => dupesNotifier.value = !dupesNotifier.value,
               trailing: Switch(value: dupesOn, onChanged: (v) => dupesNotifier.value = v)),
-          if (currentSource.value.startsWith('deep:'))
+          if (currentSource.value.startsWith('deep:') || isFollowing(effectiveSource()))
             _row(ctx, Icons.hide_image_outlined, 'Hide gone images', () => hideGone.value = !hideGone.value,
                 trailing: Switch(value: hideGone.value, onChanged: (v) => hideGone.value = v)),
           _row(ctx, Icons.date_range, r == null ? 'Date range…' : '${_d(r.start)} to ${_d(r.end)}', () async {

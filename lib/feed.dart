@@ -1,4 +1,5 @@
 import 'following.dart';
+import 'saved_ui.dart';
 import 'keyword_ui.dart';
 import 'dart:async';
 import 'dart:math';
@@ -179,6 +180,7 @@ class _FeedScreenState extends State<FeedScreen> {
         title: TitleButton(widget.title ?? 'Hobees', onTap: widget.onTitleTap),
         actions: [
           ...widget.actions,
+          const GalleryButton(),
           IconButton(
             tooltip: 'More', icon: const Icon(Icons.more_vert),
             onPressed: () => showActionsSheet(context,

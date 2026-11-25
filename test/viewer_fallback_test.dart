@@ -21,6 +21,20 @@ class _Fail extends ImageProvider<_Fail> {
   int get hashCode => url.hashCode;
 }
 
+class _Gone extends ImageProvider<_Gone> {
+  final String url;
+  _Gone(this.url);
+  @override
+  Future<_Gone> obtainKey(ImageConfiguration c) => SynchronousFuture(this);
+  @override
+  ImageStreamCompleter loadImage(_Gone key, ImageDecoderCallback decode) =>
+      OneFrameImageStreamCompleter(Future.error(NetworkImageLoadException(statusCode: 404, uri: Uri.parse(url))));
+  @override
+  bool operator ==(Object o) => o is _Gone && o.url == url;
+  @override
+  int get hashCode => url.hashCode;
+}
+
 /// Never finishes loading (a slow original).
 class _Pending extends ImageProvider<_Pending> {
   final String url;
@@ -74,6 +88,21 @@ void main() {
     expect(find.byWidgetPredicate((w) => w is Image && w.image == thumb), findsOneWidget);
     expect(find.textContaining("Couldn't load image"), findsNothing);
     expect(find.byKey(const Key('quiet-retry')), findsOneWidget);
+  });
+
+  testWidgets('every URL deleted (404) -> tells the viewer once, so the tile can be hidden', (t) async {
+    var told = 0;
+    await t.pumpWidget(MaterialApp(home: PhotoFallback(urls: const ['https://a/1.jpg', 'https://a/2.jpg'], placeholder: MemoryImage(png),
+        providerFor: (u, _) => _Gone(u), onRemoved: () => told++)));
+    for (var n = 0; n < 8; n++) { await t.pump(const Duration(milliseconds: 50)); }
+    expect(told, 1);
+  });
+
+  testWidgets('other errors (403) are not reported as deleted', (t) async {
+    var told = 0;
+    await t.pumpWidget(MaterialApp(home: PhotoFallback(urls: const ['https://a/1.jpg'], providerFor: (u, _) => _Fail(u), onRemoved: () => told++)));
+    for (var n = 0; n < 8; n++) { await t.pump(const Duration(milliseconds: 50)); }
+    expect(told, 0);
   });
 
   test('prefetchTargets: next two positions, images only', () {

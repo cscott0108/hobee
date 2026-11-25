@@ -3,6 +3,7 @@ import 'following_ui.dart';
 import 'follows.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'saved_ui.dart';
 import 'crash_log.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -223,6 +224,13 @@ class LoginPrompt extends StatelessWidget {
                 onPressed: () => openFollowing(),
                 icon: const Icon(Icons.dynamic_feed),
                 label: const Text('Following (no login)'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('home-gallery'),
+                onPressed: () => openSavedGallery(context),
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('Hobees gallery'),
               ),
               if (Auth.i.lastError != null) ...[
                 const SizedBox(height: 16),

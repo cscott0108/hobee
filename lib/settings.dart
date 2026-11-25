@@ -10,6 +10,8 @@ import 'screen_awake.dart';
 import 'app_lock_ui.dart';
 import 'clean.dart';
 import 'clean_image.dart';
+import 'saved.dart';
+import 'saved_ui.dart';
 import 'package:flutter/material.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -338,6 +340,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) => cleanJpegs.value = v,
           ),
         ),
+        const SavedGalleryTile(),
+        ValueListenableBuilder(
+          valueListenable: saveTo,
+          builder: (_, to, _) => ListTile(
+            key: const Key('save-to'),
+            title: const Text('Save downloads to'),
+            subtitle: Text(to == SaveTo.hobees
+                ? 'Private: only Hobees can see them. Uninstalling Hobees or clearing its data deletes them, so export what you want to keep.'
+                : "Pictures / Movies, so they show in the phone's gallery app."),
+            trailing: DropdownButton<SaveTo>(
+              value: to,
+              items: const [
+                DropdownMenuItem(value: SaveTo.hobees, child: Text('Hobees gallery')),
+                DropdownMenuItem(value: SaveTo.phone, child: Text('Phone gallery')),
+              ],
+              onChanged: (v) => saveTo.value = v ?? SaveTo.hobees,
+            ),
+          ),
+        ),
         ValueListenableBuilder(
           valueListenable: saveOriginalBytes,
           builder: (_, on, _) => SwitchListTile(
@@ -402,7 +423,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           valueListenable: hideGone,
           builder: (_, on, _) => SwitchListTile(
             title: const Text('Hide gone pictures'),
-            subtitle: const Text('Deep Search skips tiles whose picture was deleted everywhere.'),
+            subtitle: const Text('Deep Search and Following skip tiles whose picture was deleted.'),
             value: on,
             onChanged: (v) => hideGone.value = v,
           ),
