@@ -101,10 +101,20 @@ class HobeeNetPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             main.post { if (!answered) { answered = true; result.success(ok) } }
         }
         val cb = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
+            // Android can announce the network a moment before it lets this app use it (it's still marked as a
+            // background network), so binding is refused at first: retry for a few seconds, and again as soon as
+            // the network reports it's in the foreground.
+            override fun onAvailable(network: Network) = tryBind(network, 0)
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                if (!answered && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_FOREGROUND)) tryBind(network, -1)
+            }
+            fun tryBind(network: Network, attempt: Int) {
+                if (answered) return
                 val ok = cm.bindProcessToNetwork(network)
-                Log.i("hobee_net", "mobile data available, bound=$ok")
-                answer(ok)
+                Log.i("hobee_net", "mobile data available, bound=$ok (attempt $attempt)")
+                if (ok) answer(true)
+                else if (attempt in 0 until 10) main.postDelayed({ tryBind(network, attempt + 1) }, 300)
+                else if (attempt >= 10) answer(false)
             }
             override fun onUnavailable() {
                 Log.i("hobee_net", "mobile data unavailable")
