@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'auth.dart';
 import 'db.dart';
+import 'pace_log.dart';
 import 'find.dart';
 import 'models.dart';
 import 'public_sources.dart';
@@ -132,6 +133,9 @@ class Archive {
   /// page's next request doesn't queue behind them.
   static Duration giveWay = const Duration(seconds: 2);
 
+  /// Who made a request, for the pace log.
+  static String _caller() => Zone.current[_bgKey] == true ? (PaceLog.inBackgroundTask ? 'background' : 'refresher') : 'page';
+
   /// Runs [f] as background work (the Following refresher): its requests give way to the open page's.
   static Future<T> background<T>(Future<T> Function() f) => runZoned(f, zoneValues: {_bgKey: true});
 
@@ -209,16 +213,30 @@ class Archive {
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       final last = attempt == maxAttempts - 1;
       Duration backoff() => Duration(seconds: (2 << attempt).clamp(2, 30));
+      final queued = DateTime.now();
       await _pace(u.host);
+      final start = DateTime.now();
+      // Archive pace log: every attempt, with how long it queued, how long the reply took and what came back.
+      void rec(String result, {int status = 0, int rows = 0, String msg = '', int? reset}) => PaceLog.request(
+            url: u, caller: _caller(), start: start, queueMs: start.difference(queued).inMilliseconds,
+            replyMs: DateTime.now().difference(start).inMilliseconds, result: result, status: status, rows: rows, resetS: reset,
+            message: msg).ignore();
       final http.Response r;
       try {
         r = await http.get(u, headers: {'User-Agent': _ua, 'Accept': 'application/json', ...extra}).timeout(const Duration(seconds: 20));
       } on TimeoutException {
+        rec('timeout');
         if (retries > 0 && !last) { await Future.delayed(backoff()); continue; }
         throw _Unavailable('timed out', 'No response in 20 s from ${u.host}');
       } catch (e) {
+        rec('network', msg: '$e');
         if (retries > 0 && !last) { await Future.delayed(backoff()); continue; }
         throw _Unavailable('network error', '$e');
+      }
+      final reset = int.tryParse(r.headers['x-ratelimit-reset'] ?? '');
+      final slow = isSlowDown(r.statusCode, r.body);
+      if (r.statusCode != 200 || slow) {
+        rec(paceResult(r.statusCode, slowDown: slow), status: r.statusCode, msg: _bodySnippet(r.body), reset: reset);
       }
       final ct = r.headers['content-type'] ?? '';
       if (r.statusCode == 429) {
@@ -238,18 +256,32 @@ class Archive {
       if (r.statusCode == 403) throw _Unavailable('blocked (HTTP 403)', detail);
       if (r.statusCode >= 500) throw _Unavailable('server error (HTTP ${r.statusCode})', detail);
       if (r.statusCode != 200) throw _Unavailable('HTTP ${r.statusCode}', detail);
-      if (ct.contains('html') || r.body.trimLeft().startsWith('<')) throw _Unavailable('blocked (HTML page instead of JSON)', detail);
+      if (ct.contains('html') || r.body.trimLeft().startsWith('<')) {
+        rec('html', status: 200, reset: reset);
+        throw _Unavailable('blocked (HTML page instead of JSON)', detail);
+      }
       final Object? j;
       try {
         j = jsonDecode(r.body);
       } on FormatException catch (e) {
+        rec('bad_json', status: 200, reset: reset);
         throw _Unavailable('bad JSON', '$e\n$detail');
       }
-      if (j is! Map) throw _Unavailable('unexpected response', detail);
+      if (j is! Map) {
+        rec('error_reply', status: 200, reset: reset);
+        throw _Unavailable('unexpected response', detail);
+      }
       final data = j['data'];
       // A valid empty result ("data": [] or null with no error) is NOT an outage.
-      if (data == null && j['error'] == null) return [];
-      if (data is! List) throw _Unavailable(j['error'] != null ? '${j['error']}' : 'unexpected response', detail);
+      if (data == null && j['error'] == null) {
+        rec('ok', status: 200, reset: reset);
+        return [];
+      }
+      if (data is! List) {
+        rec('error_reply', status: 200, msg: '${j['error'] ?? 'unexpected response'}', reset: reset);
+        throw _Unavailable(j['error'] != null ? '${j['error']}' : 'unexpected response', detail);
+      }
+      rec('ok', status: 200, rows: data.length, reset: reset);
       return data.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
     }
     throw _Unavailable('blocked (rate-limited)', 'HTTP 429 repeatedly from ${u.host}');

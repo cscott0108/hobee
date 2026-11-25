@@ -73,6 +73,13 @@ class MainActivity : FlutterFragmentActivity() {
                                 call.argument<String>("name")!!)
                             runOnUiThread { result.success(uri) }
                         }
+                        "download" -> {
+                            val path = call.argument<String>("path")!!
+                            val uri = toDownloads(call.argument<String>("name")!!, call.argument<String>("mime")!!) { o ->
+                                FileInputStream(path).use { it.copyTo(o) }
+                            }
+                            runOnUiThread { result.success(uri) }
+                        }
                         "unzip" -> {
                             val names = unzip(call.argument<String>("src")!!, call.argument<String>("dir")!!)
                             runOnUiThread { result.success(names) }
@@ -178,13 +185,18 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
         }
+        return toDownloads(base, "application/zip", ::write)
+    }
+
+    /** Writes a new file named [base] (or "base (1)" and so on) into Downloads; returns its uri or path. */
+    private fun toDownloads(base: String, mime: String, write: (OutputStream) -> Unit): String {
         val dir = Environment.DIRECTORY_DOWNLOADS
         if (Build.VERSION.SDK_INT >= 29) {
             val coll = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             val name = freeName(base) { taken(coll, dir, it) }
             val v = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-                put(MediaStore.MediaColumns.MIME_TYPE, "application/zip")
+                put(MediaStore.MediaColumns.MIME_TYPE, mime)
                 put(MediaStore.MediaColumns.RELATIVE_PATH, "$dir/")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
@@ -208,7 +220,7 @@ class MainActivity : FlutterFragmentActivity() {
                 f.delete()
                 throw e
             }
-            MediaScannerConnection.scanFile(this, arrayOf(f.absolutePath), arrayOf("application/zip"), null)
+            MediaScannerConnection.scanFile(this, arrayOf(f.absolutePath), arrayOf(mime), null)
             return f.absolutePath
         }
     }

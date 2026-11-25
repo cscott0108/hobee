@@ -1,5 +1,6 @@
 import 'background.dart';
 import 'following.dart';
+import 'pace_ui.dart';
 import 'follows_ui.dart';
 import 'dedupe.dart';
 import 'masonry.dart';
@@ -273,6 +274,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: Following.setTwoAtATime,
           ),
         ),
+        const PaceLogTile(),
         ListTile(
           leading: const Icon(Icons.playlist_add_check),
           title: const Text('Following lists'),
