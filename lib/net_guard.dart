@@ -239,6 +239,7 @@ class NetGuard {
   @visibleForTesting
   static void debugReset() {
     _wire();
+    _queue = Future.value(); // a check left over from an earlier test must not hold up the next one
     enabled.value = false;
     untrusted.value = UntrustedWifi.pause;
     mobileData.value = true;
