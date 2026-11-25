@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 import 'following.dart';
+import 'pace_log.dart';
 import 'follows.dart';
 import 'net_guard.dart';
 
@@ -80,6 +81,7 @@ class BackgroundRefresh {
 void backgroundDispatcher() {
   Workmanager().executeTask((task, input) async {
     DartPluginRegistrant.ensureInitialized();
+    PaceLog.inBackgroundTask = true; // its requests show as 'background' in the archive pace log
     try {
       // Wi-Fi safety: only on the connection last seen trusted (or mobile data if allowed). Never reads the
       // Wi-Fi name in the background, so no 'location all the time' permission.

@@ -14,6 +14,7 @@ import 'app_lock.dart';
 import 'app_lock_ui.dart';
 import 'db.dart';
 import 'following.dart';
+import 'pace_log.dart';
 import 'archive.dart';
 import 'public_sources.dart';
 import 'auth.dart';
@@ -70,6 +71,7 @@ Future<void> _main() async {
   await _safe('downloads', Downloaded.load);
   await _safe('background', BackgroundRefresh.load);
   await _safe('followPace', Following.loadPrefs);
+  PaceLog.marker('app_start').ignore();
   // Older builds saved suggestion filter choices; they are gone now, so drop the key.
   await _safe('suggest', () async => sp.remove('suggestPrefs'));
   await _safe('video', VideoPrefs.load);

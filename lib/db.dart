@@ -31,7 +31,7 @@ class Db {
 
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 11, onUpgrade: (db, o, n) async {
+    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 12, onUpgrade: (db, o, n) async {
       if (o < 2) await _v2(db);
       if (o < 3) await _v3(db);
       if (o < 4) await _v4(db);
@@ -42,6 +42,7 @@ class Db {
       if (o < 9) await _v9(db);
       if (o < 10) await _v10(db);
       if (o < 11) await _v11(db);
+      if (o < 12) await _v12(db);
     }, onCreate: (db, v) async {
       await db.execute('CREATE TABLE posts(source TEXT, id TEXT, created INTEGER, json TEXT, PRIMARY KEY(source,id))');
       await db.execute('CREATE INDEX idx_src_created ON posts(source, created)');
@@ -55,8 +56,16 @@ class Db {
       await _v9(db);
       await _v10(db);
       await _v11(db);
+      await _v12(db);
     });
     return _db!;
+  }
+
+  /// v12: the archive pace log (see PaceLog): one row per archive request or marker, newest 5,000 kept.
+  static Future<void> _v12(Database db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS pace_log(id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER, host TEXT, caller TEXT, '
+        'kind TEXT, fg INTEGER, inflight INTEGER, gap_ms INTEGER, queue_ms INTEGER, reply_ms INTEGER, status INTEGER, result TEXT, '
+        'rows INTEGER, reset_s INTEGER, net TEXT, note TEXT)');
   }
 
   /// v11: what each download looked like (picture fingerprint, preview and where it came from), so a new

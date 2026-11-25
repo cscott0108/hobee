@@ -6,6 +6,7 @@ import 'archive.dart';
 import 'db.dart';
 import 'follows.dart';
 import 'models.dart';
+import 'pace_log.dart';
 import 'sub_search.dart' show isSubSearch, subParts;
 
 /// Following feed (no login): every subreddit and user of a profile, merged by date.
@@ -72,6 +73,7 @@ class Following {
   }
 
   static final _force = <String>{};
+  static final _logged = <String>{}; // sources whose round end is already in the pace log
 
   /// Pull-to-refresh: the next round checks every entry not checked in the last [freshFor], however quiet.
   static void forceFull(String source) => _force.add(source);
@@ -105,6 +107,7 @@ class Following {
 
   static Future<void> setTwoAtATime(bool on) async {
     twoAtATime.value = on;
+    PaceLog.marker('setting', 'two_at_a_time=$on').ignore();
     await (await SharedPreferences.getInstance()).setBool(_twoKey, on);
   }
 
@@ -224,6 +227,8 @@ class Following {
       sub: f.kind == FollowKind.sub ? f.name : null, author: f.kind == FollowKind.user ? f.name : null, after: after, before: before, limit: limit));
 
   static Future<List<Map<String, dynamic>>> _paced(Follow f, {int? after, int? before, required int limit}) async {
+    PaceLog.gapMs = gap.inMilliseconds;
+    PaceLog.inFlight = inFlight;
     final l = _last;
     if (l != null) {
       final wait = gap - DateTime.now().difference(l);
@@ -293,6 +298,8 @@ class Following {
           .toList()
         ..sort((a, b) => states[a]!.at.compareTo(states[b]!.at));
       _round[source] = stale;
+      _logged.remove(source);
+      PaceLog.marker('round_start', 'due=${stale.length};total=${follows.length};forced=$force').ignore();
       _checked[source] = (follows.length - stale.length, follows.length, 0);
       _retried[source] = {};
       _filled[source] = {};
@@ -407,6 +414,9 @@ class Following {
     }
 
     if (queue.isEmpty) fill = toFill();
+    if (queue.isEmpty && _logged.add(source)) {
+      PaceLog.marker('round_end', 'checked=$checked;total=$total;failed=$failed;gap_ms=${gap.inMilliseconds}').ignore();
+    }
     _filling[source] = fill.isNotEmpty;
     status(fill.length);
     final allDone = queue.isEmpty && follows.every((f) => states[f]!.done);
