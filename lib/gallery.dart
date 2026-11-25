@@ -1,4 +1,5 @@
 import 'following.dart';
+import 'age.dart';
 import 'saved_ui.dart';
 import 'downloaded.dart';
 import 'dart:async';
@@ -707,6 +708,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
                           if (e.post.media.length > 1 && !grouped)
                             const Positioned(left: 4, top: 4, child: _Badge(Icons.collections_rounded)),
                           if (dup != null && e.index == 0) Positioned(right: 4, bottom: 4, child: DupBadge(dup.length)),
+                          // How long ago the post went up (a framed block says it once, in its header).
+                          if (e.index == 0 && !grouped && e.post.created > 0)
+                            Positioned(right: 4, bottom: dup != null ? 30 : 4, child: _AgePill(e.post.created)),
                         ]),
                       ),
                     );
@@ -804,11 +808,23 @@ class _GroupHeader extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: cs.onSurface)),
         ),
-        Text('$count items', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+        Text('$count items${post.created > 0 ? ' · ${shortAge(post.created)}' : ''}', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
         const SizedBox(width: 4),
       ]),
     );
   }
+}
+
+class _AgePill extends StatelessWidget {
+  final int created;
+  const _AgePill(this.created);
+  @override
+  Widget build(BuildContext context) => Container(
+        key: const Key('age-pill'),
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
+        child: Text(shortAge(created), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+      );
 }
 
 class _Badge extends StatelessWidget {
