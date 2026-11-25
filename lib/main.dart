@@ -29,6 +29,8 @@ import 'sub_users.dart';
 import 'viewed.dart';
 import 'net_guard.dart';
 import 'net_ui.dart';
+import 'reddit_session.dart';
+import 'reddit_login.dart';
 import 'downloaded.dart';
 
 const accent = Color(0xFFE53935);
@@ -74,6 +76,7 @@ Future<void> _main() async {
   ScreenAwake.onIdle = AppLock.idle;
   await _safe('lock', AppLock.load);
   await _safe('auth', Auth.i.init);
+  await _safe('session', RedditSession.load);
   // Thumbs are decoded at display size (cacheWidth); the extra room holds the viewer's prefetched originals
   // (decoded up to 4096 px, Phase 2), which a 120 MB cache evicted before they were shown.
   PaintingBinding.instance.imageCache
@@ -199,7 +202,11 @@ class _HomeState extends State<Home> {
         extendBody: true,
         backgroundColor: Colors.transparent,
         body: IndexedStack(index: tab, children: [
-          Auth.i.loggedIn ? const PostsView() : const LoginPrompt(),
+          // Home: the client-ID login, or your own Reddit session (Phase 7); otherwise the no-login start page.
+          ValueListenableBuilder(
+            valueListenable: RedditSession.cookie,
+            builder: (_, c, _) => Auth.i.loggedIn || c != null ? const PostsView() : const LoginPrompt(),
+          ),
           const DeepSearchScreen(),
           const SearchScreen(),
           const SettingsScreen(),
@@ -225,6 +232,11 @@ class LoginPrompt extends StatelessWidget {
               const Text('Your Reddit media, ad-free.', textAlign: TextAlign.center),
               const SizedBox(height: 24),
               FilledButton.icon(onPressed: () => startLogin(context), icon: const Icon(Icons.login), label: const Text('Log in with Reddit')),
+              TextButton(
+                key: const Key('home-session-login'),
+                onPressed: () => startSessionLogin(context),
+                child: const Text('Or log in on reddit.com (no client ID)'),
+              ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 key: const Key('home-following'),

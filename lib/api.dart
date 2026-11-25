@@ -1,5 +1,6 @@
 import 'following.dart';
 import 'net_guard.dart';
+import 'reddit_session.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'archive.dart';
@@ -11,6 +12,8 @@ import 'sub_search.dart';
 class Api {
   static Future<Map<String, dynamic>> get(String path, [Map<String, String>? q]) async {
     final a = Auth.i;
+    // No client-ID login but your own Reddit session (Phase 7): the same pages from www.reddit.com.
+    if (!a.loggedIn && RedditSession.cookie.value != null) return RedditSession.getJson(path, q);
     for (var attempt = 0; attempt < 2; attempt++) {
       final t = await a.token(force: attempt == 1);
       final r = await http.get(Uri.https('oauth.reddit.com', path, {'raw_json': '1', ...?q}),
@@ -31,7 +34,7 @@ class Api {
     if (source.startsWith('home')) return '/$sort';
     if (source.startsWith('r/')) return '/${parts[0]}/${sort == 'best' ? 'hot' : sort}';
     if (source.startsWith('u/')) return '/user/${parts[0].substring(2)}/submitted';
-    return '/user/${Auth.i.username}/$source';
+    return '/user/${Auth.i.username ?? RedditSession.username.value}/$source';
   }
 
   static String? _timeFor(String source) {

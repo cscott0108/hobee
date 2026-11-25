@@ -13,6 +13,7 @@ import 'clean_image.dart';
 import 'saved.dart';
 import 'saved_ui.dart';
 import 'net_ui.dart';
+import 'reddit_login.dart';
 import 'package:flutter/material.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -97,6 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               : FilledButton(onPressed: () => startLogin(context), child: const Text('Log in')),
         ),
         if (a.lastError != null) ListTile(title: Text(a.lastError!, style: const TextStyle(color: accent))),
+        if (!a.loggedIn) const RedditSessionSettings(),
         const Divider(),
         ValueListenableBuilder(
           valueListenable: themeMode,
