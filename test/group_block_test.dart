@@ -91,6 +91,6 @@ void main() {
     await t.drag(find.byType(CustomScrollView), const Offset(0, -19700));
     await t.pump();
     expect(built.length, aspects.length);
-    expect(t.getTopLeft(find.byKey(const Key('after'))).dy, closeTo(20000 - 19700 + Masonry(aspects, 3, 360).extent, 0.01));
+    expect(t.getTopLeft(find.byKey(const Key('after'), skipOffstage: false)).dy, closeTo(20000 - 19700 + Masonry(aspects, 3, 360).extent, 0.01));
   });
 }
