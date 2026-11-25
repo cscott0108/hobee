@@ -31,7 +31,7 @@ class Db {
 
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 10, onUpgrade: (db, o, n) async {
+    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 11, onUpgrade: (db, o, n) async {
       if (o < 2) await _v2(db);
       if (o < 3) await _v3(db);
       if (o < 4) await _v4(db);
@@ -41,6 +41,7 @@ class Db {
       if (o < 8) await _v8(db);
       if (o < 9) await _v9(db);
       if (o < 10) await _v10(db);
+      if (o < 11) await _v11(db);
     }, onCreate: (db, v) async {
       await db.execute('CREATE TABLE posts(source TEXT, id TEXT, created INTEGER, json TEXT, PRIMARY KEY(source,id))');
       await db.execute('CREATE INDEX idx_src_created ON posts(source, created)');
@@ -53,8 +54,23 @@ class Db {
       await _v8(db);
       await _v9(db);
       await _v10(db);
+      await _v11(db);
     });
     return _db!;
+  }
+
+  /// v11: what each download looked like (picture fingerprint, preview and where it came from), so a new
+  /// download can be compared with earlier ones; and fingerprints for the Hobees gallery's files.
+  static Future<void> _v11(Database db) async {
+    Future<void> add(String table, String col, String type) async {
+      final cols = {for (final r in await db.rawQuery('PRAGMA table_info($table)')) r['name']};
+      if (!cols.contains(col)) await db.execute('ALTER TABLE $table ADD COLUMN $col $type');
+    }
+    for (final (c, t) in const [('hash', 'INTEGER'), ('thumb', 'TEXT'), ('title', 'TEXT'), ('subreddit', 'TEXT'), ('author', 'TEXT'),
+      ('created', 'INTEGER'), ('saved_path', 'TEXT')]) {
+      await add('downloads', c, t);
+    }
+    await add('saved', 'hash', 'INTEGER');
   }
 
   /// v10: each post's user and subreddit (lower case) in their own indexed columns, so one channel's saved
