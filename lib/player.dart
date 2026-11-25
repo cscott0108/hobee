@@ -76,6 +76,10 @@ final viewerChromeInset = ValueNotifier<double>(0);
 /// to re-blur on every zoom frame) and, for videos, stops swiping to the next item until you zoom out.
 final viewerZoomed = ValueNotifier<bool>(false);
 
+/// Whether the current video's controls are showing. The video takes every tap, so the viewer shows and
+/// hides its title bar and user / subreddit chips together with the controls.
+final videoControlsShown = ValueNotifier<bool>(true);
+
 /// Sources to try in order: HLS (has sound) or the resolved mp4, then the plain mp4, then Reddit's preview clip.
 Future<List<(String, bool)>> videoSources(MediaItem it) async {
   if (isLocalPath(it.url)) return [(it.url, false)]; // a saved file (Hobees gallery)
@@ -205,12 +209,17 @@ class _VideoPageState extends State<VideoPage> {
   void _autoHide() {
     hide?.cancel();
     hide = Timer(const Duration(seconds: 3), () {
-      if (mounted && (c?.value.isPlaying ?? false) && !dragging) setState(() => ui = false);
+      if (mounted && (c?.value.isPlaying ?? false) && !dragging) _setUi(false);
     });
   }
 
+  void _setUi(bool v) {
+    setState(() => ui = v);
+    if (widget.active) videoControlsShown.value = v;
+  }
+
   void _toggleUi() {
-    setState(() => ui = !ui);
+    _setUi(!ui);
     if (ui) _autoHide();
   }
 
@@ -250,6 +259,7 @@ class _VideoPageState extends State<VideoPage> {
     super.didUpdateWidget(old);
     if (widget.active == old.active) return;
     if (widget.active) {
+      ui = true; // controls show again when you swipe back to this video (the viewer's panels show with them)
       if (c == null) {
         _init();
       } else {

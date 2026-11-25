@@ -58,6 +58,7 @@ class _ViewerState extends State<Viewer> {
   @override
   void dispose() {
     viewerZoomed.removeListener(_zoomChanged);
+    videoControlsShown.removeListener(_videoUi);
     ScreenAwake.viewerClosed();
     viewerChromeInset.value = 0;
     viewerZoomed.value = false;
@@ -68,7 +69,17 @@ class _ViewerState extends State<Viewer> {
     // Zoomed in: hide the panels so the picture isn't re-blurred behind them on every frame; for videos also
     // stop the page swipe (pictures hand the swipe back to the pager at their edges themselves).
     if (viewerZoomed.value && chrome) chrome = false;
+    // Zoomed back out of a video: the panels come back with its controls.
+    if (!viewerZoomed.value && _isVideo(cur)) chrome = videoControlsShown.value;
     if (mounted) setState(() {});
+  }
+
+  bool _isVideo(int i) => widget.entries[i].item.type == MediaType.video;
+
+  /// Videos take every tap (to show their controls), so the panels follow the controls instead.
+  void _videoUi() {
+    if (!mounted || !_isVideo(cur) || viewerZoomed.value) return;
+    setState(() => chrome = videoControlsShown.value);
   }
 
   @override
@@ -76,6 +87,8 @@ class _ViewerState extends State<Viewer> {
     super.initState();
     viewerZoomed.value = false;
     viewerZoomed.addListener(_zoomChanged);
+    videoControlsShown.value = true;
+    videoControlsShown.addListener(_videoUi);
     ScreenAwake.viewerOpened();
     if (!widget.local) {
       markRead(widget.entries[widget.start].post.id);
@@ -166,7 +179,12 @@ class _ViewerState extends State<Viewer> {
                 markRead(widget.entries[i].post.id);
                 if (widget.entries[i].post.id != widget.entries[cur].post.id) Interest.opened(widget.entries[i].post);
               }
-              setState(() => cur = i);
+              setState(() {
+                cur = i;
+                // A video starts with its controls showing, so show the panels with them.
+                if (_isVideo(i)) chrome = true;
+              });
+              if (_isVideo(i)) videoControlsShown.value = true;
               _prefetch(i);
             },
             itemBuilder: (_, i) {

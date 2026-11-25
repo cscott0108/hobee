@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/clean_image.dart';
 import 'package:hobee/player.dart';
 import 'package:hobee/saved.dart';
+import 'package:hobee/sub_users.dart';
 import 'package:hobee/viewer.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,6 +44,26 @@ void main() {
     expect(find.byKey(const Key('gallery-share')), findsOneWidget);
     expect(find.byTooltip('Download'), findsNothing, reason: 'saved items show the gallery buttons instead');
     expect(find.text('r/pics'), findsOneWidget, reason: 'the subreddit chip still shows');
+    await t.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('on a video the user / subreddit chips show and hide with the video controls', (t) async {
+    const v = SavedItem(path: '/data/gallery/3_0.mp4', kind: 'video', subreddit: 'clips', author: 'amy', savedAt: 3);
+    await t.pumpWidget(MaterialApp(home: Viewer(entries: [Entry(v.post, v.media, 0)], start: 0, local: true)));
+    await t.pump();
+    expect(find.byType(SubChip), findsOneWidget);
+    videoControlsShown.value = false; // controls auto-hide while playing
+    await t.pump();
+    expect(find.byType(SubChip), findsNothing);
+    videoControlsShown.value = true; // a tap brings the controls back
+    await t.pump();
+    expect(find.byType(SubChip), findsOneWidget, reason: 'the chips come back with the controls');
+    viewerZoomed.value = true; // pinch zoom hides the panels
+    await t.pump();
+    expect(find.byType(SubChip), findsNothing);
+    viewerZoomed.value = false; // zoomed back out
+    await t.pump();
+    expect(find.byType(SubChip), findsOneWidget);
     await t.pumpWidget(const SizedBox());
   });
 }
