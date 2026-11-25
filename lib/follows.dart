@@ -201,6 +201,14 @@ class FollowStore {
     return [for (final r in rows) Follow(r['kind'] == 'u' ? FollowKind.user : FollowKind.sub, r['name'] as String)];
   }
 
+  /// The lists (profile ids) that follow [f].
+  static Future<Set<int>> listsWith(Follow f) async {
+    final d = await Db.db;
+    final rows = await d.query('follows',
+        columns: ['profile'], where: 'kind=? AND name=? COLLATE NOCASE', whereArgs: [f.kind == FollowKind.sub ? 'r' : 'u', f.name]);
+    return {for (final r in rows) r['profile'] as int};
+  }
+
   /// Adds follows to a profile, skipping ones it already has (case-insensitive). Returns how many were new.
   static Future<int> add(int profile, List<Follow> fs) async {
     final d = await Db.db;

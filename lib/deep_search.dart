@@ -1,3 +1,4 @@
+import 'follow_button.dart';
 import 'follows.dart';
 import 'following_ui.dart';
 import 'following.dart';
@@ -151,6 +152,7 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
         key: ValueKey(src),
         title: title,
         sources: false,
+        actions: [FollowButton(Follow(FollowKind.sub, p.sub))],
         header: Column(mainAxisSize: MainAxisSize.min, children: [
           const Padding(padding: EdgeInsets.only(top: 4), child: SubViewToggle()),
           SubResultsHeader(current: src),
@@ -161,6 +163,7 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
         flexibleSpace: const GlassBar(),
         leading: back,
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        actions: [FollowButton(Follow(FollowKind.sub, p.sub))],
         bottom: const PreferredSize(preferredSize: Size.fromHeight(44), child: Padding(padding: EdgeInsets.only(bottom: 6), child: SubViewToggle())),
       ),
     );
@@ -185,6 +188,7 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
       key: ValueKey(src),
       title: 'u/${key.replaceFirst('@', ' · r/')}',
       sources: false,
+      actions: [FollowButton(Follow(FollowKind.user, key.split('@').first))],
       onTitleTap: () => showAccountSwitcher(context, key),
       header: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         ProfileHeader(key.split('@').first),
