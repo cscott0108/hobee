@@ -258,8 +258,7 @@ class _ViewerState extends State<Viewer> {
                     Flexible(child: SubChip(e.post.subreddit)),
                     const SizedBox(width: 8),
                     Flexible(
-                      child: Text('${postedWhen(e.post.created)}'
-                          '${e.post.media.length > 1 ? '  •  ${e.index + 1}/${e.post.media.length}' : ''}',
+                      child: Text(postedWhen(e.post.created) + (e.post.media.length > 1 ? '  •  ${e.index + 1}/${e.post.media.length}' : ''),
                           key: const Key('viewer-when'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
