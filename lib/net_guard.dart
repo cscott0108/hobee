@@ -176,6 +176,7 @@ class NetGuard {
     final net = await read();
     if (_once != null && !_once!.same(net)) _once = null; // left the network: "Use once" ends
     current.value = net;
+    debugPrint('net: ${net?.type.name} handle=${net?.handle} decision=${decide(on: enabled.value, net: net, trustedNets: trusted.value, onUntrusted: untrusted.value, mobileOk: mobileData.value, once: _once).name} mobile=${onMobileData.value}');
     final d = decide(on: enabled.value, net: net, trustedNets: trusted.value, onUntrusted: untrusted.value, mobileOk: mobileData.value, once: _once);
     if (enabled.value && net != null && net.type == NetType.wifi && trusted.value.any((t) => t.matches(net))) {
       await _sp?.setInt('netTrustedHandle', net.handle ?? -1); // for the background refresh (see [backgroundAllowed])
@@ -187,6 +188,7 @@ class NetGuard {
         try {
           ok = await _ch.invokeMethod<bool>('bindCellular') ?? false;
         } catch (_) {}
+        debugPrint('net: mobile data ${ok ? 'on' : 'not available'}');
         onMobileData.value = ok; // not available: stays paused (fail closed)
       }
     } else {

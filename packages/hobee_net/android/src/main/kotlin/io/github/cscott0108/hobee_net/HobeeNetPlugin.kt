@@ -9,6 +9,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -100,8 +101,15 @@ class HobeeNetPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             main.post { if (!answered) { answered = true; result.success(ok) } }
         }
         val cb = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) { answer(cm.bindProcessToNetwork(network)) }
-            override fun onUnavailable() { answer(false) }
+            override fun onAvailable(network: Network) {
+                val ok = cm.bindProcessToNetwork(network)
+                Log.i("hobee_net", "mobile data available, bound=$ok")
+                answer(ok)
+            }
+            override fun onUnavailable() {
+                Log.i("hobee_net", "mobile data unavailable")
+                answer(false)
+            }
             // Mobile data dropped: stay bound to it (requests fail) rather than silently falling back to Wi-Fi.
             override fun onLost(network: Network) { changed() }
         }
@@ -113,9 +121,11 @@ class HobeeNetPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         owner = this
         if (Build.VERSION.SDK_INT >= 26) cm.requestNetwork(req, cb, 10_000) else cm.requestNetwork(req, cb)
         main.postDelayed({ answer(false) }, 12_000)
+        Log.i("hobee_net", "asked for mobile data")
     }
 
     private fun unbind() {
+        if (cellular != null) Log.i("hobee_net", "released mobile data")
         try { cm.bindProcessToNetwork(null) } catch (_: Exception) {}
         cellular?.let { try { cm.unregisterNetworkCallback(it) } catch (_: Exception) {} }
         cellular = null
