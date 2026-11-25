@@ -4,6 +4,7 @@ import 'glass.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'accounts.dart';
+import 'age.dart';
 import 'archive.dart';
 import 'archive_ui.dart';
 import 'clean_image.dart';
@@ -256,9 +257,14 @@ class _ViewerState extends State<Viewer> {
                   Row(children: [
                     Flexible(child: SubChip(e.post.subreddit)),
                     const SizedBox(width: 8),
-                    Text('${e.post.date.toLocal().toString().substring(0, 10)}'
-                        '${e.post.media.length > 1 ? '  •  ${e.index + 1}/${e.post.media.length}' : ''}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    Flexible(
+                      child: Text('${postedWhen(e.post.created)}'
+                          '${e.post.media.length > 1 ? '  •  ${e.index + 1}/${e.post.media.length}' : ''}',
+                          key: const Key('viewer-when'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    ),
                   ]),
                 ]),
               )),
