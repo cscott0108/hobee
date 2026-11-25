@@ -46,8 +46,8 @@ void main() {
       ),
     ));
     final inner = Masonry(aspects, 3, 360 - 2 * groupPad).extent;
-    expect(t.getSize(find.byKey(const Key('group-block'))).height, closeTo(groupBlockExtent(inner) - 2 * groupGap, 0.01),
-        reason: 'the box itself; its top and bottom gaps are margins');
+    expect(t.getSize(find.byKey(const Key('group-block'))).height, closeTo(groupBlockExtent(inner), 0.01),
+        reason: 'gaps, header, pictures and bottom padding');
     expect(t.getSize(find.byKey(const Key('t0'))).width, closeTo((360 - 2 * groupPad) / 3, 0.01));
     expect(find.text('u/amy · r/pics'), findsOneWidget);
   });
