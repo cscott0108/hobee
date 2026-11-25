@@ -17,7 +17,7 @@ class Db {
 
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 8, onUpgrade: (db, o, n) async {
+    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 9, onUpgrade: (db, o, n) async {
       if (o < 2) await _v2(db);
       if (o < 3) await _v3(db);
       if (o < 4) await _v4(db);
@@ -25,6 +25,7 @@ class Db {
       if (o < 6) await _v6(db);
       if (o < 7) await _v7(db);
       if (o < 8) await _v8(db);
+      if (o < 9) await _v9(db);
     }, onCreate: (db, v) async {
       await db.execute('CREATE TABLE posts(source TEXT, id TEXT, created INTEGER, json TEXT, PRIMARY KEY(source,id))');
       await db.execute('CREATE INDEX idx_src_created ON posts(source, created)');
@@ -35,8 +36,14 @@ class Db {
       await _v5(db);
       await _v6(db);
       await _v8(db);
+      await _v9(db);
     });
     return _db!;
+  }
+
+  /// v9: media you downloaded (marked in grids and the viewer).
+  static Future<void> _v9(Database db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS downloads(url TEXT PRIMARY KEY, post_id TEXT, at INTEGER)');
   }
 
   /// v8: the private Hobees gallery (Phase 6): one row per saved file.

@@ -1,5 +1,6 @@
 import 'following.dart';
 import 'saved_ui.dart';
+import 'downloaded.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -635,6 +636,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
                             ),
                           if (e.item.type != MediaType.image)
                             const Positioned(right: 4, top: 4, child: _Badge(Icons.play_arrow_rounded)),
+                          // Downloaded already (either gallery): a check under the play badge.
+                          ValueListenableBuilder(
+                            valueListenable: Downloaded.urls,
+                            builder: (_, d, _) => d.contains(e.item.url)
+                                ? Positioned(right: 4, top: e.item.type != MediaType.image ? 28 : 4, child: const _Badge(Icons.download_done_rounded, key: Key('downloaded-badge')))
+                                : const SizedBox.shrink(),
+                          ),
                           if (e.post.media.length > 1)
                             const Positioned(left: 4, top: 4, child: _Badge(Icons.collections_rounded)),
                           if (dup != null && e.index == 0) Positioned(right: 4, bottom: 4, child: DupBadge(dup.length)),
@@ -708,7 +716,7 @@ class _Header extends SliverPersistentHeaderDelegate {
 
 class _Badge extends StatelessWidget {
   final IconData icon;
-  const _Badge(this.icon);
+  const _Badge(this.icon, {super.key});
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(2),
