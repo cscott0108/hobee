@@ -7,8 +7,4 @@ import 'package:hobee/db.dart';
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   Db.fileName = 'hobee_test_$pid.db';
   await testMain();
-  try {
-    final f = File('${Directory.current.path}/.dart_tool/sqflite_common_ffi/databases/${Db.fileName}');
-    if (await f.exists()) await f.delete();
-  } catch (_) {}
 }
