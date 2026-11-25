@@ -24,8 +24,9 @@ void main() {
   });
 
   Future<void> settle(WidgetTester t) async {
-    for (var i = 0; i < 4; i++) {
-      await t.runAsync(() => Future.delayed(const Duration(milliseconds: 80)));
+    // Each await on real file / database work only moves on between pumps, so give it plenty of rounds.
+    for (var i = 0; i < 40; i++) {
+      await t.runAsync(() => Future.delayed(const Duration(milliseconds: 20)));
       await t.pump();
     }
   }
