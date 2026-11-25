@@ -130,7 +130,7 @@ void main() {
     addTearDown(() => t.runAsync(() => tmp.delete(recursive: true)));
     await t.pumpWidget(MaterialApp(home: Scaffold(appBar: AppBar(actions: const [GalleryButton()]))));
     await t.tap(find.byKey(const Key('gallery-button')));
-    await t.pumpAndSettle();
+    await t.pump(const Duration(milliseconds: 400)); // page transition (the loading spinner never settles)
     await settle(t);
     expect(find.byType(SavedGalleryScreen), findsOneWidget);
     expect(find.textContaining('Nothing saved yet'), findsOneWidget);
