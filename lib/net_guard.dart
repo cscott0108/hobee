@@ -135,9 +135,7 @@ class NetGuard {
     untrusted.addListener(() => sp.setString('netUntrusted', untrusted.value.name));
     mobileData.addListener(() => sp.setBool('netMobileData', mobileData.value));
     trusted.addListener(() => sp.setString('netTrusted', jsonEncode([for (final t in trusted.value) t.toJson()])));
-    for (final n in [enabled, untrusted, mobileData, trusted]) {
-      n.addListener(() => unawaited(refresh()));
-    }
+    _wire();
     HttpOverrides.global = GuardedHttp();
     _ch.setMethodCallHandler((c) async {
       if (c.method == 'changed') _changedSoon();
@@ -146,6 +144,17 @@ class NetGuard {
       await _ch.invokeMethod('watch');
     } catch (_) {}
     await refresh();
+  }
+
+  static bool _wired = false;
+
+  /// Any settings change re-checks the network at once.
+  static void _wire() {
+    if (_wired) return;
+    _wired = true;
+    for (final n in [enabled, untrusted, mobileData, trusted]) {
+      n.addListener(() => unawaited(refresh()));
+    }
   }
 
   static Timer? _debounce;
@@ -222,6 +231,7 @@ class NetGuard {
 
   @visibleForTesting
   static void debugReset() {
+    _wire();
     enabled.value = false;
     untrusted.value = UntrustedWifi.pause;
     mobileData.value = true;

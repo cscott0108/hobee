@@ -28,6 +28,7 @@ import 'sub_search.dart';
 import 'sub_users.dart';
 import 'viewed.dart';
 import 'net_guard.dart';
+import 'net_ui.dart';
 
 const accent = Color(0xFFE53935);
 final themeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
@@ -134,7 +135,8 @@ class HobeeApp extends StatelessWidget {
             child: Listener(
               behavior: HitTestBehavior.translucent,
               onPointerDown: (_) => ScreenAwake.touched(),
-              child: child,
+              // Wi-Fi safety's banner sits above every page while Hobees is paused.
+              child: NetBanner(child: child ?? const SizedBox()),
             ),
           ),
         ),
