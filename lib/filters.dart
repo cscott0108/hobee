@@ -113,7 +113,6 @@ class Rel {
   static final ready = ValueNotifier<int>(0);
   static String _key = '';
   static Map<String, RHit>? _hits;
-  static String? _pending;
   static bool active = false;
 
   static RQuery sourceQuery() {
@@ -140,31 +139,82 @@ class Rel {
     ], p.author, p.created, (p.raw['score'] as num?)?.toInt() ?? 0);
   }
 
+  /// Feeds up to this size rank inline; bigger ones rank in an isolate (and match without typos meanwhile).
+  static const inlineMax = 1500;
+
+  /// Test seam: runs one ranking job (an isolate in the app).
+  static Future<Map<int, RHit>> Function((List<RDoc>, String) job) runJob = (j) => compute(rankJob, j);
+  @visibleForTesting
+  static int jobsStarted = 0;
+
+  static String _hitsQ = '', _hitsSrc = ''; // what the current ranking was made for
+  static int _gen = 0; // bumps when an inline ranking replaces the results
+  static bool _running = false;
+  static (List<Post>, String, String, String)? _next; // newest list waiting: posts, key, query, source
+
+  // A reload of the same posts gives a new list object, so the key is the posts themselves, not the list.
+  static String _keyOf(String qs, List<Post> all) =>
+      '${currentSource.value}|$qs|${all.length}|${all.isEmpty ? '' : '${all.first.id}|${all.last.id}'}';
+
+  static Map<String, RHit> _byId(List<Post> all, Map<int, RHit> r) => {for (final e in r.entries) all[e.key].id: e.value};
+
   static Map<String, RHit>? hitsFor(List<Post> all) {
     final qs = queryText();
-    if (qs.isEmpty || parseQuery(qs).isEmpty) { active = false; return null; }
-    final key = '$qs|${identityHashCode(all)}|${all.length}';
+    if (qs.isEmpty || parseQuery(qs).isEmpty) { active = false; _next = null; return null; }
+    final key = _keyOf(qs, all);
     if (key == _key) { active = true; return _hits; }
-    Map<String, RHit> byId(Map<int, RHit> r) => {for (final e in r.entries) all[e.key].id: e.value};
-    if (all.length <= 1500) {
+    final src = currentSource.value;
+    if (all.length <= inlineMax) {
+      _gen++;
+      _next = null;
       _key = key;
-      _hits = byId(rankDocs([for (final p in all) docOf(p)], parseQuery(qs)));
+      _hitsQ = qs;
+      _hitsSrc = src;
+      _hits = _byId(all, rankDocs([for (final p in all) docOf(p)], parseQuery(qs)));
       active = true;
       return _hits;
     }
-    if (_pending != key) {
-      _pending = key;
-      final docs = [for (final p in all) docOf(p)];
-      compute(rankJob, (docs, qs)).then((r) {
-        if (_pending != key) return;
-        _pending = null;
-        _key = key;
-        _hits = byId(r);
-        ready.value++;
-      });
-    }
+    // Only one ranking runs at a time; while it runs, only the newest list waits (older ones are dropped).
+    if (_next?.$2 != key) _next = (all, key, qs, src);
+    _pump();
+    // Same search on the same feed, posts added: keep the last ranking until the new one is ready.
+    if (_hits != null && _hitsQ == qs && _hitsSrc == src) { active = true; return _hits; }
     active = false;
     return null; // plain matching until the ranked list is ready
+  }
+
+  static void _pump() {
+    final n = _next;
+    if (_running || n == null) return;
+    _next = null;
+    final (all, key, qs, src) = n;
+    if (queryText() != qs || currentSource.value != src) return _pump(); // the search moved on
+    _running = true;
+    jobsStarted++;
+    final gen = _gen;
+    runJob(([for (final p in all) docOf(p)], qs)).then((r) {
+      if (gen == _gen && queryText() == qs && currentSource.value == src) {
+        _key = key;
+        _hitsQ = qs;
+        _hitsSrc = src;
+        _hits = _byId(all, r);
+        ready.value++;
+      }
+    }, onError: (_) {}).whenComplete(() {
+      _running = false;
+      _pump();
+    });
+  }
+
+  @visibleForTesting
+  static void debugReset() {
+    _key = _hitsQ = _hitsSrc = '';
+    _hits = null;
+    _next = null;
+    _running = false;
+    jobsStarted = 0;
+    active = false;
+    runJob = (j) => compute(rankJob, j);
   }
 }
 
@@ -339,14 +389,14 @@ List<String> get searchTerms {
 }
 
 /// Everything except the type and status chips: read, date and the search text.
-bool baseMatches(Post p, {bool text = true}) {
+bool baseMatches(Post p, {bool text = true, bool typos = true}) {
   if (hideRead.value && readIds.contains(p.id)) return false;
   final r = dateRange.value;
   if (r != null) {
     final d = p.date.toLocal();
     if (d.isBefore(r.start) || !d.isBefore(r.end.add(const Duration(days: 1)))) return false;
   }
-  return !text || textMatches(p, searchTerms);
+  return !text || textMatches(p, searchTerms, typos: typos);
 }
 
 bool _statusOk(Post p, bool deep) => !deep || statusFilter.value.isEmpty || statusFilter.value.contains(statusOf(p));
@@ -367,6 +417,8 @@ List<Post> filterAndCount(List<Post> all) {
   final sr = isSubSearch(currentSource.value);
   final hv = Viewed.hide.value;
   final hits = Rel.hitsFor(all);
+  // A big feed matches by plain text while its ranking runs: one-typo matching over every word is too slow.
+  final typos = all.length <= Rel.inlineMax;
   final mf = mediaFilter.value;
   final c = <Object, int>{};
   final out = <Post>[];
@@ -374,7 +426,7 @@ List<Post> filterAndCount(List<Post> all) {
     if (!subOk(p)) continue;
     if (sr && hv && Viewed.has(p.author)) continue;
     if (hits != null && !hits.containsKey(p.id)) continue;
-    if (!baseMatches(p, text: hits == null)) continue;
+    if (!baseMatches(p, text: hits == null, typos: typos)) continue;
     final st = _statusOk(p, deep);
     if (st && kindMatches(p, mf)) out.add(p);
     if (st) {

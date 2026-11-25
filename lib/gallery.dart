@@ -93,6 +93,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
         });
         return;
       }
+      if (_capMore) {
+        _cap += resultStep; // the saved place is further down what's loaded
+        _rebuild();
+        continue;
+      }
       if (!_dbMore) return;
       await _growDb();
     }
@@ -103,6 +108,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
   bool _windowed = false, _dbMore = false, _dbLoading = false;
   String? _allSrc;
   bool get _needAll => Rel.queryText().trim().isNotEmpty || dateRange.value != null;
+
+  // Every feed (Following, subreddits, users, Deep Search, searches and date ranges) shows its posts
+  // [resultStep] at a time, newest (or best) first, so duplicate grouping, picture checks and layout only cover
+  // what's shown. Scrolling near the end shows the next step of what's loaded, then reads or fetches more.
+  int _cap = resultStep;
+  bool _capMore = false, _capBusy = false;
+  String _capKey = '';
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -281,7 +293,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
   void _followingSaved() {
     if (!isFollowing(effectiveSource())) return;
     // A windowed feed reloads only its window, and less often, so scrolling stays smooth while a refresh runs.
-    _folT ??= Timer(Duration(milliseconds: _windowed ? 4000 : 1500), () {
+    // While a search or date range looks through the whole feed, every reload re-reads and re-ranks all of it,
+    // so new posts join less often.
+    _folT ??= Timer(Duration(milliseconds: _needAll ? 20000 : (_windowed ? 4000 : 1500)), () {
       _folT = null;
       if (!mounted || !isFollowing(effectiveSource())) return;
       if (_dbLoading) return _followingSaved(); // a chunk is loading: reload after it, not over it
@@ -329,6 +343,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
     var shown = filterAndCount(_all);
     if (g.isNotEmpty) shown = shown.where((p) => !g.contains(p.id)).toList();
     _shown = shown.length;
+    final capKey = '${effectiveSource()}|${Rel.queryText()}|${dateRange.value}';
+    if (capKey != _capKey) {
+      _capKey = capKey;
+      _cap = resultStep;
+    }
+    final (capped, more) = capResults(shown, _cap);
+    shown = capped;
+    _capMore = more;
     _textHits = textish ? 0 : shown.where((p) => p.media.isEmpty).length;
     var cp = <String, List<Post>>{};
     if (isFollowing(effectiveSource())) shown = Following.applyKind(shown, effectiveSource());
@@ -380,7 +402,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// Load the next page whenever the end of the list is close: on scroll, and also after a page lands or tiles get
   /// hidden (the list may not fill the screen, so no scroll event would ever come and 'Load more' would sit there).
   void _nearEnd() {
-    if (!mounted || !sc.hasClients || loading || _dbLoading || (done && !_dbMore) || bulk || error != null || _noGrow >= 5) return;
+    if (!mounted || !sc.hasClients || loading || _dbLoading || (done && !_dbMore && !_capMore) || bulk || error != null || _noGrow >= 5) return;
     if (sc.position.pixels > sc.position.maxScrollExtent - 1200) _more();
   }
 
@@ -391,6 +413,16 @@ class _GalleryScreenState extends State<GalleryScreen> {
   int _noGrow = 0; // auto-loads in a row that added nothing visible; stop after a few until the user scrolls
   int _auto = 0;
   Future<void> _more({bool auto = false}) async {
+    if (_capMore) {
+      // The next posts are already loaded: just show more of them (once per frame).
+      if (_capBusy) return;
+      _capBusy = true;
+      _cap += resultStep;
+      _rebuild();
+      WidgetsBinding.instance.addPostFrameCallback((_) => _capBusy = false);
+      _checkEndSoon();
+      return;
+    }
     if (_dbMore && _windowed) {
       // Saved posts first: the next chunk from the database.
       final before = entries.length;
@@ -506,15 +538,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
         if (!p.group)
           masonrySliver(aspects.sublist(p.start, p.end), _cols, (j) => tile(s.idx[p.start + j], false))
         else
-          SliverToBoxAdapter(
-            child: groupBlock(
-              aspects: aspects.sublist(p.start, p.end),
-              cols: _cols,
-              color: cs.primary,
-              header: _GroupHeader(entries[s.idx[p.start]].post, p.end - p.start,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Viewer(entries: entries, start: s.idx[p.start])))),
-              tile: (k) => tile(s.idx[p.start + k], true),
-            ),
+          groupSliver(
+            aspects: aspects.sublist(p.start, p.end),
+            cols: _cols,
+            color: cs.primary,
+            header: _GroupHeader(entries[s.idx[p.start]].post, p.end - p.start,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Viewer(entries: entries, start: s.idx[p.start])))),
+            tile: (k) => tile(s.idx[p.start + k], true),
           ),
     ]);
   }
@@ -696,7 +726,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
               child: ListFooter(
                 loading: loading || _dbLoading,
                 error: error,
-                done: done && !_dbMore,
+                done: done && !_dbMore && !_capMore,
                 empty: entries.isEmpty && _textHits == 0,
                 searching: isSubSearch(effectiveSource()) && Rel.queryText().trim().isNotEmpty,
                 checkedTo: isSubSearch(effectiveSource()) ? oldestLabel(_all) : null,
@@ -740,6 +770,12 @@ class _Header extends SliverPersistentHeaderDelegate {
         ]),
       );
 }
+
+/// Posts a feed shows per step (more join as you scroll near the end).
+const resultStep = 500;
+
+/// The first [cap] of [shown], and whether more are waiting.
+(List<Post>, bool) capResults(List<Post> shown, int cap) => shown.length > cap ? (shown.sublist(0, cap), true) : (shown, false);
 
 /// Header line of a framed block: who posted it, where, and how many pictures.
 class _GroupHeader extends StatelessWidget {
