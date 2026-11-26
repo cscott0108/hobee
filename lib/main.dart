@@ -18,6 +18,7 @@ import 'hide_gestures.dart';
 import 'pace_log.dart';
 import 'perf_log.dart';
 import 'archive.dart';
+import 'dedupe.dart' show Dedupe;
 import 'public_sources.dart';
 import 'auth.dart';
 import 'filters.dart';
@@ -99,6 +100,11 @@ Future<void> _main() async {
   // small chunks, the first time after the update).
   Timer(const Duration(seconds: 5), () => _safe('channels', () => Db.backfillChannels()));
   // CPU, memory and smoothness samples in the pace log while Hobees is on screen.
+  PerfLog.work = () {
+    final (c, cw) = MediaCheck.work;
+    final (h, hw, f, fw) = Dedupe.work;
+    return 'checks=$c/$cw;hashes=$h/$hw;frames=$f/$fw';
+  };
   PerfLog.start();
   searchQuery.addListener(() => PerfLog.soon('search'));
 }

@@ -10,6 +10,17 @@ void main() {
   tearDown(() {
     PerfLog.debugReset();
     PerfLog.context = () => '';
+    PerfLog.work = () => '';
+  });
+
+  test('thread count is read from /proc/self/status', () {
+    expect(threadsOf('Name:	x
+State:	S
+Threads:	87
+SigQ:	0/1
+'), 87);
+    expect(threadsOf('Name:	x
+'), isNull);
   });
 
   test('CPU time is read from /proc/self/stat after the process name', () {
@@ -41,6 +52,10 @@ void main() {
     PerfLog.readStat = () async => stat(ticks, 0);
     PerfLog.write = (n) async => notes.add(n);
     PerfLog.context = () => 'feed=following;posts=10;shown=8';
+    PerfLog.memSplit = () async => {'java': 12, 'native': 300, 'graphics': 90, 'other': 1400, 'pss': 1900};
+    PerfLog.readStatus = () async => 'Threads:	64
+';
+    PerfLog.work = () => 'checks=6/40;hashes=4/120;frames=0/0';
 
     await PerfLog.sample('first');
     expect(notes.single, startsWith('why=first;cpu=;'), reason: 'no earlier reading to compare with');
@@ -51,13 +66,17 @@ void main() {
     expect(n, startsWith('why=timer;cpu='));
     expect(RegExp(r'cpu=\d+;rss_mb=\d+;peak_mb=\d+;img=\d+;img_mb=\d+;img_live=\d+;').hasMatch(n), isTrue, reason: n);
     expect(n, contains('frames=1;slow_frames=1;worst_frame_ms=20'));
-    expect(n, endsWith(';feed=following;posts=10;shown=8'));
+    expect(n, contains(';java_mb=12;native_mb=300;graphics_mb=90;other_mb=1400;pss_mb=1900;threads=64'));
+    expect(n, endsWith(';checks=6/40;hashes=4/120;frames=0/0;feed=following;posts=10;shown=8'));
     expect(PerfLog.frames.frames, 0, reason: 'frames are counted per sample');
   });
 
   test('a sample never throws, even when /proc cannot be read', () async {
     final notes = <String>[];
     PerfLog.readStat = () async => throw Exception('no /proc');
+    PerfLog.readStatus = () async => throw Exception('no /proc');
+    PerfLog.memSplit = () async => throw Exception('no channel');
+    PerfLog.work = () => throw StateError('gone');
     PerfLog.write = (n) async => notes.add(n);
     PerfLog.context = () => throw StateError('gone');
     await PerfLog.sample('timer');

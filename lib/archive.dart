@@ -780,6 +780,9 @@ class MediaCheck {
   @visibleForTesting
   static int get queued => _waiters.length;
 
+  /// For the perf samples: checks running now and waiting.
+  static (int, int) get work => (_active, _waiters.length);
+
   static Future<T> _limit<T>(Future<T> Function() f, bool Function() wanted) async {
     if (_active >= maxConcurrent) {
       final w = _Waiter(wanted);

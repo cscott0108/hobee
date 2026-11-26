@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' show FrameTiming;
 import 'package:flutter/painting.dart' show PaintingBinding;
 import 'package:flutter/scheduler.dart' show SchedulerBinding;
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import 'pace_log.dart';
 
@@ -32,13 +33,23 @@ class FrameStats {
   void reset() => frames = slow = worstMs = 0;
 }
 
+/// Thread count from the text of /proc/self/status.
+int? threadsOf(String status) => int.tryParse(RegExp(r'^Threads:\s*(\d+)', multiLine: true).firstMatch(status)?.group(1) ?? '');
+
+/// Android's split of the app's memory (MB): java, native, graphics, other (includes the Dart heap), code,
+/// stack, system, pss, swap. Order of the note's keys.
+const memKeys = ['java', 'native', 'graphics', 'other', 'code', 'stack', 'system', 'pss', 'swap'];
+
 /// One performance sample, as the pace log's note.
 String perfNote({
   required String why, int? cpu, required int rssMb, required int peakMb, required int imgCount, required int imgMb,
-  required int imgLive, required FrameStats f, String context = '',
+  required int imgLive, required FrameStats f, Map<String, int> mem = const {}, int? threads, String work = '',
+  String context = '',
 }) =>
     'why=$why;cpu=${cpu ?? ''};rss_mb=$rssMb;peak_mb=$peakMb;img=$imgCount;img_mb=$imgMb;img_live=$imgLive;'
-    'frames=${f.frames};slow_frames=${f.slow};worst_frame_ms=${f.worstMs}${context.isEmpty ? '' : ';$context'}';
+    'frames=${f.frames};slow_frames=${f.slow};worst_frame_ms=${f.worstMs}'
+    '${[for (final k in memKeys) if (mem[k] != null) ';${k}_mb=${mem[k]}'].join()}'
+    '${threads == null ? '' : ';threads=$threads'}${work.isEmpty ? '' : ';$work'}${context.isEmpty ? '' : ';$context'}';
 
 /// Performance samples in the pace log (rows of kind `perf`): CPU, memory, picture cache and smoothness every
 /// [every] while Hobees is on screen, and shortly after moments that cost work (switching feeds, searching,
@@ -52,8 +63,19 @@ class PerfLog {
   /// What's on screen, without names (set by the grid): "feed=following;posts=…;shown=…".
   static String Function() context = () => '';
 
+  /// Background work in flight, without names (set at app start): "checks=2/0;hashes=4/120;frames=0/0".
+  static String Function() work = () => '';
+
   /// Test seams.
   static Future<String> Function() readStat = () => File('/proc/self/stat').readAsString();
+  static Future<String> Function() readStatus = () => File('/proc/self/status').readAsString();
+  static Future<Map<String, int>> Function() memSplit = _memSplit;
+  static const _ch = MethodChannel('hobee/perf');
+
+  static Future<Map<String, int>> _memSplit() async {
+    final m = await _ch.invokeMapMethod<String, int>('mem');
+    return m ?? const {};
+  }
   static Future<void> Function(String note) write = (n) => PaceLog.marker('perf', n);
 
   static final frames = FrameStats();
@@ -127,19 +149,27 @@ class PerfLog {
       _ticks = ticks;
       _at = now;
       final cache = PaintingBinding.instance.imageCache;
+      Map<String, int> mem = const {};
+      int? threads;
+      try {
+        mem = await memSplit();
+      } catch (_) {}
+      try {
+        threads = threadsOf(await readStatus());
+      } catch (_) {}
       final note = perfNote(
         why: why, cpu: cpu, rssMb: ProcessInfo.currentRss >> 20, peakMb: ProcessInfo.maxRss >> 20,
         imgCount: cache.currentSize, imgMb: cache.currentSizeBytes >> 20, imgLive: cache.liveImageCount, f: frames,
-        context: _context(),
+        mem: mem, threads: threads, work: _safe(work), context: _safe(context),
       );
       frames.reset();
       await write(note);
     } catch (_) {} // the log must never break the app
   }
 
-  static String _context() {
+  static String _safe(String Function() f) {
     try {
-      return context();
+      return f();
     } catch (_) {
       return '';
     }

@@ -137,6 +137,20 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
                 }
             }
         }
+        // Perf samples (pace log): where the memory is, in MB (Android's own split, as in dumpsys meminfo).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/perf").setMethodCallHandler { call, result ->
+            if (call.method == "mem") {
+                val mi = android.os.Debug.MemoryInfo()
+                android.os.Debug.getMemoryInfo(mi)
+                fun mb(k: String) = (mi.getMemoryStat(k)?.toIntOrNull() ?: 0) / 1024
+                result.success(mapOf(
+                    "java" to mb("summary.java-heap"), "native" to mb("summary.native-heap"), "code" to mb("summary.code"),
+                    "stack" to mb("summary.stack"), "graphics" to mb("summary.graphics"), "other" to mb("summary.private-other"),
+                    "system" to mb("summary.system"), "pss" to mi.totalPss / 1024, "swap" to mb("summary.total-swap")))
+            } else {
+                result.notImplemented()
+            }
+        }
         // App lock's "Hide in recent apps": FLAG_SECURE blanks the app-switcher preview and blocks screenshots.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/window").setMethodCallHandler { call, result ->
             if (call.method == "secure") {

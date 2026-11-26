@@ -189,6 +189,9 @@ class Dedupe {
   static int _running = 0;
   static final List<String> _queue = [];
 
+  /// For the perf samples: picture hashes running and waiting, video frame reads running and waiting.
+  static (int, int, int, int) get work => (_running, _queue.length, _frameRunning ? 1 : 0, _frameQueue.length);
+
   /// Groups [posts] (already ordered); returns representatives in order and a map rep.id -> all copies (incl. rep).
   static (List<Post>, Map<String, List<Post>>) collapse(List<Post> posts) {
     final n = posts.length;
