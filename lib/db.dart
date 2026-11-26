@@ -318,8 +318,10 @@ class Db {
     final seen = <String>{};
     for (var i = 0; i < ids.length && out.length < cap; i += chunkRows) {
       final part = ids.sublist(i, i + chunkRows > ids.length ? ids.length : i + chunkRows);
-      final rows = await d.rawQuery('SELECT json FROM posts WHERE rowid IN (${List.filled(part.length, '?').join(',')})', part);
-      final raw = [for (final r in rows) r['json'] as String];
+      final rows = await d.rawQuery('SELECT rowid AS r, json FROM posts WHERE rowid IN (${List.filled(part.length, '?').join(',')})', part);
+      // IN returns rows in storage order: put them back newest first before the cap picks.
+      final byId = {for (final r in rows) r['r'] as int: r['json'] as String};
+      final raw = [for (final id in part) ?byId[id]];
       for (final p in raw.length > 150 ? await compute(_decodeAll, raw) : _decodeAll(raw)) {
         if (out.length < cap && seen.add(p.id)) out.add(p);
       }
