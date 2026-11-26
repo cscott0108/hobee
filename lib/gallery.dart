@@ -9,7 +9,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'list_footer.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/rendering.dart' show ScrollCacheExtent, ScrollDirection;
 import 'glass.dart';
 import 'api.dart';
 import 'archive.dart';
@@ -73,7 +73,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// Loading that runs on its own (not from you scrolling or tapping Load more) stops at this many posts.
   static const autoLimit = 3000;
   DateTime _lastDrag = DateTime.fromMillisecondsSinceEpoch(0);
-  bool get _youScrolled => DateTime.now().difference(_lastDrag) < const Duration(seconds: 3);
+  // Also true for as long as a fling of yours is still moving (a long one can outlast the 3 seconds).
+  bool get _youScrolled =>
+      DateTime.now().difference(_lastDrag) < const Duration(seconds: 3) ||
+      (sc.hasClients && sc.position.userScrollDirection != ScrollDirection.idle);
 
   /// What kind of feed (never a user or subreddit name), for the pace log.
   static String _kind(String? src) {
