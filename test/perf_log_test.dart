@@ -14,13 +14,8 @@ void main() {
   });
 
   test('thread count is read from /proc/self/status', () {
-    expect(threadsOf('Name:	x
-State:	S
-Threads:	87
-SigQ:	0/1
-'), 87);
-    expect(threadsOf('Name:	x
-'), isNull);
+    expect(threadsOf('Name:\tx\nState:\tS\nThreads:\t87\nSigQ:\t0/1\n'), 87);
+    expect(threadsOf('Name:\tx\n'), isNull);
   });
 
   test('CPU time is read from /proc/self/stat after the process name', () {
@@ -53,8 +48,7 @@ SigQ:	0/1
     PerfLog.write = (n) async => notes.add(n);
     PerfLog.context = () => 'feed=following;posts=10;shown=8';
     PerfLog.memSplit = () async => {'java': 12, 'native': 300, 'graphics': 90, 'other': 1400, 'pss': 1900};
-    PerfLog.readStatus = () async => 'Threads:	64
-';
+    PerfLog.readStatus = () async => 'Threads:\t64\n';
     PerfLog.work = () => 'checks=6/40;hashes=4/120;frames=0/0';
 
     await PerfLog.sample('first');
