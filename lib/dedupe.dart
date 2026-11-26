@@ -531,8 +531,9 @@ class Dedupe {
   }
 }
 
-/// Width pictures are decoded at for hashing.
-const hashDecodeWidth = 64;
+/// Width pictures are decoded at for hashing: 16 px per hash column, close enough to the old full-size average
+/// (about 60 KB of pixels instead of tens of MB).
+const hashDecodeWidth = 144;
 
 /// Test seam: decodes [bytes] at [width] px wide (Android's own decoder; a JPEG decodes straight to that size).
 Future<ui.Codec> Function(Uint8List bytes, int width) hashDecoder =
