@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'glass.dart';
+import 'perf_log.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'accounts.dart';
@@ -94,6 +95,7 @@ class _ViewerState extends State<Viewer> {
     videoControlsShown.value = true;
     videoControlsShown.addListener(_videoUi);
     ScreenAwake.viewerOpened();
+    PerfLog.soon('viewer');
     if (!widget.local) {
       markRead(widget.entries[widget.start].post.id);
       Interest.opened(widget.entries[widget.start].post);
