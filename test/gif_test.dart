@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/clean_image.dart';
@@ -5,7 +6,8 @@ import 'package:hobee/models.dart';
 import 'package:hobee/viewer.dart';
 
 void main() {
-  Map<String, dynamic> gifPost({bool mp4 = true}) => {
+  // Through JSON, so the types are as Reddit's (List<dynamic>, Map<String, dynamic>).
+  Map<String, dynamic> gifPost({bool mp4 = true}) => jsonDecode(jsonEncode({
         'url': 'https://i.redd.it/abc123.gif',
         'post_hint': 'image',
         'preview': {
@@ -22,7 +24,7 @@ void main() {
             }
           ],
         },
-      };
+      })) as Map<String, dynamic>;
 
   test('a GIF post with an MP4 copy opens as a video (play/pause, progress)', () {
     final m = parseMedia(gifPost()).single;
