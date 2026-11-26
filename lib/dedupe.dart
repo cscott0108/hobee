@@ -136,13 +136,13 @@ class Dedupe {
     Object? last;
     for (final src in frameSources(url)) {
       try {
-        final r = await http.get(Uri.parse(src), headers: {'User-Agent': _ua}).timeout(const Duration(seconds: 20));
-        if (r.statusCode != 200 || r.bodyBytes.isEmpty || r.bodyBytes.length > maxFrameFileBytes) {
-          last = 'HTTP ${r.statusCode}, ${r.bodyBytes.length} bytes from $src';
+        final bytes = await fetchCapped(src, maxFrameFileBytes, timeout: const Duration(seconds: 20));
+        if (bytes == null) {
+          last = 'not found or over ${maxFrameFileBytes >> 20} MB: $src';
           continue;
         }
         f = File('${(await getTemporaryDirectory()).path}/frames_${src.hashCode.toUnsigned(32)}.mp4');
-        await f.writeAsBytes(r.bodyBytes, flush: true);
+        await f.writeAsBytes(bytes, flush: true);
         break;
       } catch (e) {
         last = e;
@@ -488,12 +488,40 @@ class Dedupe {
   static const maxPerPost = _maxPerPost;
   static const maxHashBytes = 2 << 20;
 
-  static Future<int?> _hashUrl(String url) async {
+  /// Test seam: the HTTP client for [fetchCapped].
+  static http.Client Function() client = http.Client.new;
+
+  /// Downloads [url] into memory, giving up (null) as soon as it turns out bigger than [cap] bytes, from its
+  /// stated size or while reading. Deep Search posts often have no thumbnail, so the address is the original
+  /// (a full size photo, a long GIF, a video): reading those whole just to skip them took gigabytes.
+  static Future<Uint8List?> fetchCapped(String url, int cap, {Duration timeout = const Duration(seconds: 15)}) async {
+    final cl = client();
     try {
-      final r = await http.get(Uri.parse(url), headers: {'User-Agent': 'android:io.github.cscott0108.hobees:v1.3.7 (personal gallery app)'}).timeout(const Duration(seconds: 15));
+      final rq = http.Request('GET', Uri.parse(url))..headers['User-Agent'] = _ua;
+      final s = await cl.send(rq).timeout(timeout);
+      if (s.statusCode != 200 || (s.contentLength ?? 0) > cap) return null;
+      final b = BytesBuilder(copy: false);
+      await for (final chunk in s.stream.timeout(timeout)) {
+        b.add(chunk);
+        if (b.length > cap) return null; // leaving the loop stops the download
+      }
+      return b.isEmpty ? null : b.takeBytes();
+    } finally {
+      cl.close();
+    }
+  }
+
+  /// Video and stream addresses can't be hashed as pictures.
+  static bool hashable(String url) =>
+      !RegExp(r'\.(mp4|webm|mov|m3u8|mpd)(\?|$)', caseSensitive: false).hasMatch(Uri.tryParse(url)?.path ?? url);
+
+  static Future<int?> _hashUrl(String url) async {
+    if (!hashable(url)) return null;
+    try {
       // Big files (full size photos, long GIFs) would need a lot of memory to decode; they are skipped.
-      if (r.statusCode != 200 || r.bodyBytes.isEmpty || r.bodyBytes.length > maxHashBytes) return null;
-      return await compute(dHash, r.bodyBytes);
+      final bytes = await fetchCapped(url, maxHashBytes);
+      if (bytes == null) return null;
+      return await compute(dHash, bytes);
     } catch (_) {
       return null;
     }
