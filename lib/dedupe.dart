@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' show max;
 import 'dart:typed_data' show BytesBuilder;
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -164,7 +166,7 @@ class Dedupe {
     final hs = <int>[];
     for (var k = 0; k < frames.length; k++) {
       final b = frames[k];
-      final h = b is Uint8List && b.isNotEmpty ? await compute(dHash, b) : null;
+      final h = b is Uint8List && b.isNotEmpty ? await hashBytes(b) : null;
       if (h == null) throw StateError('frame at ${frameSpots[k]}% unreadable (${b is Uint8List ? b.length : 0} bytes)');
       hs.add(h);
     }
@@ -453,7 +455,7 @@ class Dedupe {
   }
 
   static void _pump() {
-    while (_running < 4 && _queue.isNotEmpty) {
+    while (_running < 2 && _queue.isNotEmpty) { // 2 at a time: scrolling stays smooth while a big queue drains
       final u = _queue.removeAt(0);
       _running++;
       _hashUrl(u).then((h) async {
@@ -522,14 +524,68 @@ class Dedupe {
       // Big files (full size photos, long GIFs) would need a lot of memory to decode; they are skipped.
       final bytes = await fetchCapped(url, maxHashBytes);
       if (bytes == null) return null;
-      return await compute(dHash, bytes);
+      return await hashBytes(bytes);
     } catch (_) {
       return null;
     }
   }
 }
 
-/// 64-bit difference hash: grayscale, resize to 9x8, bit = left pixel brighter than right.
+/// Width pictures are decoded at for hashing.
+const hashDecodeWidth = 64;
+
+/// Test seam: decodes [bytes] at [width] px wide (Android's own decoder; a JPEG decodes straight to that size).
+Future<ui.Codec> Function(Uint8List bytes, int width) hashDecoder =
+    (b, w) => ui.instantiateImageCodec(b, targetWidth: w);
+
+/// [dHash] of a picture decoded small by the engine. The old way decoded the whole picture in Dart, in an
+/// isolate that shares the app's memory: hundreds of those took gigabytes and paused the screen. Gives the same
+/// hash as [dHash] within a bit or two, so saved hashes stay valid.
+Future<int?> hashBytes(Uint8List bytes) async {
+  ui.Codec? codec;
+  ui.Image? im;
+  try {
+    codec = await hashDecoder(bytes, hashDecodeWidth);
+    im = (await codec.getNextFrame()).image;
+    final data = await im.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
+    return data == null ? null : dHashRgba(data.buffer.asUint8List(), im.width, im.height);
+  } catch (_) {
+    return null;
+  } finally {
+    im?.dispose();
+    codec?.dispose();
+  }
+}
+
+/// [dHash] of raw RGBA pixels: grayscale, average down to 9x8, bit = left cell brighter than right.
+int? dHashRgba(Uint8List px, int w, int h) {
+  if (w < 1 || h < 1 || px.length < w * h * 4) return null;
+  final g = List<double>.filled(9 * 8, 0);
+  for (var cy = 0; cy < 8; cy++) {
+    final y0 = cy * h ~/ 8, y1 = max(y0 + 1, (cy + 1) * h ~/ 8);
+    for (var cx = 0; cx < 9; cx++) {
+      final x0 = cx * w ~/ 9, x1 = max(x0 + 1, (cx + 1) * w ~/ 9);
+      var s = 0.0;
+      for (var y = y0; y < y1; y++) {
+        for (var x = x0; x < x1; x++) {
+          final i = (y * w + x) * 4;
+          s += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+        }
+      }
+      g[cy * 9 + cx] = s / ((y1 - y0) * (x1 - x0));
+    }
+  }
+  var hash = 0;
+  for (var y = 0; y < 8; y++) {
+    for (var x = 0; x < 8; x++) {
+      hash = (hash << 1) | (g[y * 9 + x] > g[y * 9 + x + 1] ? 1 : 0);
+    }
+  }
+  return hash;
+}
+
+/// 64-bit difference hash: grayscale, resize to 9x8, bit = left pixel brighter than right. The old, full-size
+/// decode in Dart; [hashBytes] is used now. Kept to check the two agree.
 int? dHash(Uint8List bytes) {
   if (bytes.length > Dedupe.maxHashBytes) return null;
   final im = img.decodeImage(bytes, frame: 0); // first frame only, never every frame of a GIF
