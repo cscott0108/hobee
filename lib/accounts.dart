@@ -300,22 +300,12 @@ class Suggest {
   static final Map<String, Future<List<Suggestion>>> _inflight = {};
   static int _gen = 0;
 
-  /// All posts snapshot, reused for 2 min (decoding every post per call was the main freeze).
-  static (int, List<Post>)? _snap;
+  /// The posts suggestions learn from ([Db.loadForSuggestions]: the newest few thousand outside the Following
+  /// lists). Calls at the same time share one read; nothing is kept afterwards (the results are cached instead),
+  /// so the posts don't sit in memory.
   static Future<List<Post>>? _snapF;
   static Future<List<Post>> everything() => _everything();
-  static Future<List<Post>> _everything() async {
-    final s = _snap;
-    if (s != null && DateTime.now().millisecondsSinceEpoch - s.$1 < 120000) return s.$2;
-    return _snapF ??= Db.loadEverything().then((a) {
-      _snap = (DateTime.now().millisecondsSinceEpoch, a);
-      _snapF = null;
-      return a;
-    }, onError: (e) {
-      _snapF = null;
-      throw e;
-    });
-  }
+  static Future<List<Post>> _everything() => _snapF ??= Db.loadForSuggestions().whenComplete(() => _snapF = null);
 
   static void clearCache() {
     _cache.clear();
@@ -365,7 +355,11 @@ class Suggest {
     final key = user.toLowerCase();
     final all = await _everything();
     final profile = <String, double>{};
-    for (final p in all) {
+    // Where this user posts, from every saved post (Following lists too) through the index.
+    for (final e in (await Db.subsOf(key)).entries) {
+      if (!e.key.startsWith('u_')) profile[e.key] = e.value.toDouble();
+    }
+    for (final p in profile.isEmpty ? all : const <Post>[]) {
       if (p.author.toLowerCase() != key) continue;
       final s = p.subreddit.toLowerCase();
       if (s.startsWith('u_')) continue;
