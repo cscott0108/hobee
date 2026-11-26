@@ -47,9 +47,13 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
     private var lux = Float.MAX_VALUE
     private var near = false
     private val sensorManager by lazy { getSystemService(Context.SENSOR_SERVICE) as SensorManager }
+    // Light and proximity only report changes: once covered, a pocket sends nothing more, so a timer ends the wait.
+    private val handler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+    private val darkDone = Runnable { if (!hidden && hideDark && darkSince != 0L) hide("dark") }
 
     private fun startSensors() {
         sensorManager.unregisterListener(this)
+        handler.removeCallbacks(darkDone)
         faceDownSince = 0L; darkSince = 0L; lux = Float.MAX_VALUE; near = false
         if (hideFlip) sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
@@ -68,6 +72,7 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
 
     override fun onPause() {
         sensorManager.unregisterListener(this)
+        handler.removeCallbacks(darkDone)
         super.onPause()
     }
 
@@ -90,9 +95,14 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
             val hasProximity = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY) != null
             // Covered and dark (a pocket, a hand over it), not just a dim room.
             val dark = lux < 3f && (near || !hasProximity && lux < 1f)
-            darkSince = if (dark) (if (darkSince == 0L) now else darkSince) else 0L
+            if (dark && darkSince == 0L) {
+                darkSince = now
+                handler.postDelayed(darkDone, darkMs)
+            } else if (!dark && darkSince != 0L) {
+                darkSince = 0L
+                handler.removeCallbacks(darkDone)
+            }
         }
-        if (hideDark && darkSince != 0L && now - darkSince >= darkMs) hide("dark")
     }
 
     private fun hide(why: String) {
@@ -112,7 +122,7 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
                         hideDark = call.argument<Boolean>("dark") ?: false
                         flipMs = (call.argument<Int>("flipMs") ?: 500).toLong()
                         darkMs = (call.argument<Int>("darkMs") ?: 1000).toLong()
-                        if (hideFlip || hideDark) startSensors() else sensorManager.unregisterListener(this@MainActivity)
+                        if (hideFlip || hideDark) startSensors() else { sensorManager.unregisterListener(this@MainActivity); handler.removeCallbacks(darkDone) }
                         result.success(null)
                     }
                     "sensors" -> result.success(mapOf(
