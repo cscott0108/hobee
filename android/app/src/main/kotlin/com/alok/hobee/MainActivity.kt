@@ -203,7 +203,12 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
                             runOnUiThread { result.success(r) }
                         }
                         "poster" -> {
-                            val r = poster(call.argument<String>("path")!!, call.argument<Int>("width") ?: 360)
+                            val r = poster(call.argument<String>("path")!!, null, call.argument<Int>("width") ?: 360)
+                            runOnUiThread { result.success(r) }
+                        }
+                        "posterUrl" -> {
+                            val r = poster(call.argument<String>("url")!!, call.argument<Map<String, String>>("headers") ?: emptyMap(),
+                                call.argument<Int>("width") ?: 360)
                             runOnUiThread { result.success(r) }
                         }
                         "save" -> {
@@ -392,13 +397,14 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
     }
 
     /**
-     * One JPEG frame [width] pixels wide from a local video file, for a grid tile when the post has no working
-     * picture. Taken a tenth of the way in (the very first frame is often black); null when none can be read.
+     * One JPEG frame [width] pixels wide from a local video file, or with [headers] from a web link (the
+     * retriever reads only the parts it needs), for a grid tile when the post has no working picture. Taken a
+     * tenth of the way in (the very first frame is often black); null when none can be read.
      */
-    private fun poster(path: String, width: Int): ByteArray? {
+    private fun poster(src: String, headers: Map<String, String>?, width: Int): ByteArray? {
         val r = MediaMetadataRetriever()
         try {
-            r.setDataSource(path)
+            if (headers == null) r.setDataSource(src) else r.setDataSource(src, headers)
             val ms = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
             val full = r.getFrameAtTime(ms * 100L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?: r.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) ?: return null
