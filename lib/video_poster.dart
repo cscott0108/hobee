@@ -72,9 +72,15 @@ class VideoPoster {
       final out = await _file(m.url);
       if (await out.exists()) return;
       if (await (_done[m.url] ?? Future<File?>.value()) != null) return;
-      final src = !hls ? url : (m.url.startsWith('http') && !m.url.contains('.m3u8') ? m.url : null);
-      if (src == null || !src.startsWith('http')) return;
-      final jpg = await frameFromUrl(src).catchError((_) => null);
+      // A stream playlist can't be read for a frame: use the video's plain files instead (newer Reddit videos
+      // only have CMAF ones, so those come first; the guessed DASH name may not exist).
+      final srcs = !hls ? [url] : [if (m.url.startsWith('http') && !m.url.contains('.m3u8')) ...Dedupe.frameSources(m.url)];
+      Uint8List? jpg;
+      for (final src in srcs) {
+        if (!src.startsWith('http')) continue;
+        jpg = await frameFromUrl(src).catchError((_) => null);
+        if (jpg != null && jpg.isNotEmpty) break;
+      }
       if (jpg == null || jpg.isEmpty) return;
       await out.parent.create(recursive: true);
       await out.writeAsBytes(jpg, flush: true);
@@ -140,7 +146,19 @@ class VideoPoster {
       if (NetGuard.paused) return null;
       for (final src in await sources(m)) {
         final bytes = await fetch(src).catchError((_) => null);
-        if (bytes == null) continue;
+        if (bytes == null) {
+          // Not found, or bigger than the cap (a long video): if the link works, read the frame straight from
+          // it instead; the retriever reads only the parts it needs.
+          final code = await probe(src);
+          if (code == null || code < 200 || code >= 300) continue;
+          final jpg = await frameFromUrl(src).catchError((_) => null);
+          if (jpg != null && jpg.isNotEmpty) {
+            await out.parent.create(recursive: true);
+            await out.writeAsBytes(jpg, flush: true);
+            return out;
+          }
+          continue;
+        }
         final tmp = File('${out.parent.path}/v_${src.hashCode.toUnsigned(32)}.mp4');
         try {
           await out.parent.create(recursive: true);

@@ -11,6 +11,7 @@ void main() {
     tmp = Directory.systemTemp.createTempSync('poster');
     VideoPoster.debugReset();
     VideoPoster.dir = () async => tmp;
+    VideoPoster.probe = (_) async => null; // no network in tests
   });
   tearDown(() => tmp.deleteSync(recursive: true));
 
@@ -40,6 +41,20 @@ void main() {
     expect(asked.length, 2);
   });
 
+  test('a copy over the download cap is read straight from its link when it works', () async {
+    VideoPoster.fetch = (_) async => null; // too big (or not found)
+    VideoPoster.frame = (_) async => null;
+    VideoPoster.probe = (u) async => u.contains('CMAF_220') ? 206 : 403;
+    final read = <String>[];
+    VideoPoster.frameFromUrl = (u) async {
+      read.add(u);
+      return Uint8List.fromList([0xff, 0xd8, 5]);
+    };
+    final f = await VideoPoster.of(MediaItem(MediaType.video, 'https://v.redd.it/big/DASH_720.mp4', ''));
+    expect(f?.readAsBytesSync(), [0xff, 0xd8, 5]);
+    expect(read, ['https://v.redd.it/big/CMAF_220.mp4'], reason: 'links that refuse are not read');
+  });
+
   test('no frame when no copy can be read', () async {
     VideoPoster.fetch = (_) async => null;
     VideoPoster.frame = (_) async => null;
@@ -64,7 +79,7 @@ void main() {
     var bumps = 0;
     VideoPoster.saved.addListener(() => bumps++);
     await VideoPoster.fromPlaying(m, 'https://v.redd.it/q/HLSPlaylist.m3u8', hls: true);
-    expect(read, ['https://v.redd.it/q/DASH_720.mp4'], reason: 'a stream playlist is read from the plain .mp4 instead');
+    expect(read, ['https://v.redd.it/q/CMAF_220.mp4'], reason: 'a stream playlist is read from the plain files instead, CMAF first');
     expect(bumps, 1);
     expect((await VideoPoster.of(m))?.readAsBytesSync(), [0xff, 0xd8, 7]);
     await VideoPoster.fromPlaying(m, 'https://v.redd.it/q/HLSPlaylist.m3u8', hls: true);
