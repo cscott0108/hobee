@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'embeds.dart';
@@ -105,6 +106,50 @@ Future<List<(String, bool)>> videoSources(MediaItem it) async {
   return out;
 }
 
+/// What [host] answered when no copy played. Only hosts and status codes: no names or links.
+typedef VideoFail = (String host, int? code);
+
+String hostOf(String url) {
+  final h = Uri.tryParse(url)?.host ?? '';
+  return h.isEmpty ? 'the host' : h;
+}
+
+/// The status a host gives [url] (a one-byte request), or null when it doesn't answer. Only asked after the
+/// player failed, to say why.
+Future<int?> probeStatus(String url) async {
+  if (isLocalPath(url)) return null;
+  try {
+    final rq = http.Request('GET', Uri.parse(url))..headers.addAll({'User-Agent': Embeds.ua, 'Range': 'bytes=0-0'});
+    final r = await Embeds.client.send(rq).timeout(const Duration(seconds: 8));
+    await r.stream.listen((_) {}).cancel();
+    return r.statusCode;
+  } catch (_) {
+    return null;
+  }
+}
+
+bool _refused(int? code) => code == 401 || code == 403 || code == 404 || code == 410;
+
+/// Title and detail lines for a video no copy of which played.
+(String, String) videoErrorText(List<VideoFail> fails) {
+  if (fails.isEmpty) return ("Can't play this one", 'No playable copy found');
+  String line(VideoFail f) => switch (f.$2) {
+        null => '${f.$1}: no answer',
+        403 => '${f.$1} refused it (403)',
+        404 => '${f.$1}: not found (404)',
+        410 => '${f.$1}: gone (410)',
+        final c when c >= 200 && c < 300 => "${f.$1} answered, but the video wouldn't open",
+        final c => '${f.$1} answered $c',
+      };
+  final lines = <String>[];
+  for (final f in fails) {
+    final l = line(f);
+    if (!lines.contains(l)) lines.add(l);
+  }
+  final gone = fails.every((f) => _refused(f.$2));
+  return (gone ? 'Removed from its host' : "Can't play this one", lines.join('\n'));
+}
+
 class VideoPage extends StatefulWidget {
   final MediaItem item;
   final bool active;
@@ -116,6 +161,7 @@ class VideoPage extends StatefulWidget {
 class _VideoPageState extends State<VideoPage> {
   VideoPlayerController? c;
   String? err;
+  String errTitle = "Can't play this one";
   bool ui = true, full = false, dragging = false;
   double dragTo = 0;
   Timer? hide;
@@ -188,34 +234,70 @@ class _VideoPageState extends State<VideoPage> {
       return;
     }
     final srcs = await videoSources(widget.item);
-    Object? last;
+    final fails = <VideoFail>[];
+    final tried = <String>{};
     for (final (u, hls) in srcs) {
-      final opts = VideoPlayerOptions(mixWithOthers: VideoPrefs.mixes);
-      final ctrl = isLocalPath(u)
-          ? VideoPlayerController.file(File(u), videoPlayerOptions: opts)
-          : VideoPlayerController.networkUrl(Uri.parse(u),
-              formatHint: hls ? VideoFormat.hls : null, httpHeaders: const {'User-Agent': Embeds.ua}, videoPlayerOptions: opts);
+      if (!tried.add(u)) continue;
+      if (await _try(u, hls)) return;
+      fails.add((hostOf(u), await probeStatus(u)));
+    }
+    // A refused RedGIFs / Streamable link may only have expired: ask the host for a fresh one, once.
+    final it = widget.item.url;
+    if (fails.any((f) => _refused(f.$2)) && (Embeds.redgifsId(it) != null || Embeds.streamableId(it) != null)) {
       try {
-        await ctrl.initialize();
-        await ctrl.setLooping(VideoPrefs.loop.value);
-        await ctrl.setVolume(VideoPrefs.muted.value ? 0 : 1);
-        await ctrl.setPlaybackSpeed(VideoPrefs.speed.value);
-        final at = VideoPrefs.resumeAt(widget.item.url);
-        if (at > 0) await ctrl.seekTo(Duration(milliseconds: at));
-        if (!mounted || !widget.active) {
-          await ctrl.dispose();
-          return;
+        final u = await Embeds.playable(it, fresh: true);
+        if (tried.add(u)) {
+          if (await _try(u, false)) return;
+          fails.add((hostOf(u), await probeStatus(u)));
         }
-        ctrl.addListener(_tick);
-        setState(() => c = ctrl);
-        if (widget.active && !VideoPrefs.startPaused.value) _play();
-        return;
       } catch (e) {
-        last = e;
-        ctrl.dispose();
+        if ('$e'.contains('Gone')) fails.add((hostOf(it), 410));
       }
     }
-    if (mounted) setState(() => err = last == null ? 'No playable source' : '$last');
+    if (!mounted) return;
+    final (title, detail) = videoErrorText(fails);
+    setState(() {
+      errTitle = title;
+      err = detail;
+    });
+  }
+
+  /// Open [u] in the player. True when it plays (or the page went away meanwhile).
+  Future<bool> _try(String u, bool hls) async {
+    final opts = VideoPlayerOptions(mixWithOthers: VideoPrefs.mixes);
+    final ctrl = isLocalPath(u)
+        ? VideoPlayerController.file(File(u), videoPlayerOptions: opts)
+        : VideoPlayerController.networkUrl(Uri.parse(u),
+            formatHint: hls ? VideoFormat.hls : null, httpHeaders: const {'User-Agent': Embeds.ua}, videoPlayerOptions: opts);
+    try {
+      await ctrl.initialize();
+      await ctrl.setLooping(VideoPrefs.loop.value);
+      await ctrl.setVolume(VideoPrefs.muted.value ? 0 : 1);
+      await ctrl.setPlaybackSpeed(VideoPrefs.speed.value);
+      final at = VideoPrefs.resumeAt(widget.item.url);
+      if (at > 0) await ctrl.seekTo(Duration(milliseconds: at));
+      if (!mounted || !widget.active) {
+        await ctrl.dispose();
+        return true;
+      }
+      ctrl.addListener(_tick);
+      setState(() => c = ctrl);
+      if (widget.active && !VideoPrefs.startPaused.value) _play();
+      return true;
+    } catch (_) {
+      ctrl.dispose();
+      return false;
+    }
+  }
+
+  /// Try again from the start, asking for fresh links.
+  void _retry() {
+    Embeds.forget(widget.item.url);
+    setState(() {
+      err = null;
+      errTitle = "Can't play this one";
+    });
+    _init();
   }
 
   void _tick() {
@@ -332,7 +414,24 @@ class _VideoPageState extends State<VideoPage> {
   @override
   Widget build(BuildContext context) {
     if (err != null) {
-      return Center(child: Text("Can't play this one\n$err", style: const TextStyle(color: Colors.white70), textAlign: TextAlign.center));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(errTitle, key: const Key('video-err-title'), style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
+            const SizedBox(height: 6),
+            Text(err!, key: const Key('video-err'), style: const TextStyle(color: Colors.white70), textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              key: const Key('video-retry'),
+              onPressed: _retry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+              style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+            ),
+          ]),
+        ),
+      );
     }
     final v = c;
     if (v == null) return const Center(child: CircularProgressIndicator());
