@@ -240,7 +240,10 @@ void main() {
   test('the refresher runs the whole round on its own', () async {
     Following.budget = 1;
     FollowingRefresher.start(src);
-    for (var i = 0; i < 50 && !(followingStatus.value ?? '').startsWith('All 4 checked'); i++) {
+    // The status is set a moment before the refresher marks itself done: wait for both.
+    for (var i = 0;
+        i < 100 && (!(followingStatus.value ?? '').startsWith('All 4 checked') || FollowingRefresher.running(src));
+        i++) {
       await Future.delayed(const Duration(milliseconds: 20));
     }
     expect(followingStatus.value, startsWith('All 4 checked'));
