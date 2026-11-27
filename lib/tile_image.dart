@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'archive.dart' show isGoneError;
 import 'models.dart';
+import 'video_poster.dart';
 
 /// Addresses a grid tile can show for [m], in order: the small preview, Reddit's resized copy, and for pictures
-/// the original (decoded at tile size). The viewer tries the same ones, so a tile no longer stays broken when
+/// the original (decoded at tile size). A video's backup copy is a video file, so it isn't tried as a picture. The viewer tries the same ones, so a tile no longer stays broken when
 /// the picture itself opens fine.
 List<String> tileUrls(MediaItem m) => {
       if (m.thumb.isNotEmpty) m.thumb,
-      if ((m.preview ?? '').isNotEmpty) m.preview!,
+      if (m.type == MediaType.image && (m.preview ?? '').isNotEmpty) m.preview!,
       if (m.type == MediaType.image && m.url.startsWith('http')) m.url,
     }.toList();
 
@@ -33,7 +34,9 @@ class TileImage extends StatefulWidget {
   final int cacheWidth;
   final String? label;
   final VoidCallback? onGone;
-  const TileImage({super.key, required this.urls, this.cacheWidth = 360, this.label, this.onGone});
+  /// For a video tile: when there's no picture or none loads, show a frame from the video instead.
+  final MediaItem? video;
+  const TileImage({super.key, required this.urls, this.cacheWidth = 360, this.label, this.onGone, this.video});
   @override
   State<TileImage> createState() => _TileImageState();
 }
@@ -69,6 +72,8 @@ class _TileImageState extends State<TileImage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     Widget broken() => Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.broken_image));
+    final v = widget.video;
+    if (v != null && (widget.urls.isEmpty || i >= widget.urls.length)) return VideoPosterImage(item: v, cacheWidth: widget.cacheWidth);
     if (widget.urls.isEmpty) return Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.movie));
     if (i >= widget.urls.length) return broken();
     final u = widget.urls[i];

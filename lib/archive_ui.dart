@@ -3,6 +3,7 @@ import 'clean_image.dart' show withRedditOriginals;
 import 'package:flutter/material.dart';
 import 'archive.dart';
 import 'models.dart';
+import 'video_poster.dart';
 
 /// Image that, for archive posts, lazily checks availability (original -> preview -> thumbnail -> Wayback) and shows
 /// an 'Image gone' state when nothing reachable is left. Tap that state to check again.
@@ -22,12 +23,16 @@ class _ArchiveImageState extends State<ArchiveImage> {
   Future<String?>? _f;
   bool _disposed = false;
   bool get _thumbMode => widget.thumb || widget.item.type != MediaType.image;
+  /// Videos fall back to a frame from the video, never to the archive lookups or the "removed" state: a video
+  /// whose thumbnail is gone may still play.
+  bool get _video => widget.item.type != MediaType.image;
+  Widget get _poster => VideoPosterImage(item: widget.item, cacheWidth: widget.cacheWidth ?? 360, fit: widget.fit);
   String get _raw => _thumbMode ? widget.item.thumb : widget.item.full;
 
   @override
   void initState() {
     super.initState();
-    if (widget.deep && _raw.isEmpty && widget.item.thumb.isEmpty) {
+    if (widget.deep && !_video && _raw.isEmpty && widget.item.thumb.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _check());
     }
   }
@@ -56,6 +61,11 @@ class _ArchiveImageState extends State<ArchiveImage> {
   @override
   Widget build(BuildContext context) {
     if (!widget.deep) return _img(_raw);
+    if (_video) {
+      return _raw.isEmpty && widget.item.thumb.isEmpty
+          ? _poster
+          : FallbackImage(urls: [_raw, widget.item.thumb], fit: widget.fit, cacheWidth: widget.cacheWidth, exhausted: _poster);
+    }
     if (_f == null) {
       return _raw.isEmpty && widget.item.thumb.isEmpty
           ? _box(context, null)
@@ -72,10 +82,15 @@ class _ArchiveImageState extends State<ArchiveImage> {
     );
   }
 
-  Widget _img(String u) => u.isEmpty
-      ? _box(context, const Icon(Icons.movie))
-      : FallbackImage(urls: [u, _raw, widget.item.thumb, ?widget.item.preview], fit: widget.fit, cacheWidth: widget.cacheWidth,
-          onAllGone: () => MediaCheck.markGone(widget.post.id));
+  Widget _img(String u) {
+    if (_video) {
+      return u.isEmpty ? _poster : FallbackImage(urls: [u, _raw, widget.item.thumb], fit: widget.fit, cacheWidth: widget.cacheWidth, exhausted: _poster);
+    }
+    return u.isEmpty
+        ? _box(context, const Icon(Icons.movie))
+        : FallbackImage(urls: [u, _raw, widget.item.thumb, ?widget.item.preview], fit: widget.fit, cacheWidth: widget.cacheWidth,
+            onAllGone: () => MediaCheck.markGone(widget.post.id));
+  }
 
   Widget _box(BuildContext c, Widget? child) => Container(color: Theme.of(c).colorScheme.surfaceContainerHighest, alignment: Alignment.center, child: child);
 }
@@ -89,7 +104,9 @@ class FallbackImage extends StatefulWidget {
   final VoidCallback? onAllGone;
   /// If set, called once every URL has failed (for any reason) instead of showing the retry / gone state.
   final VoidCallback? onExhausted;
-  const FallbackImage({super.key, required this.urls, this.fit = BoxFit.cover, this.cacheWidth, this.onAllGone, this.onExhausted});
+  /// If set, shown once every URL has failed, instead of the retry / gone state (a video tile's own frame).
+  final Widget? exhausted;
+  const FallbackImage({super.key, required this.urls, this.fit = BoxFit.cover, this.cacheWidth, this.onAllGone, this.onExhausted, this.exhausted});
   @override
   State<FallbackImage> createState() => _FallbackImageState();
 }
@@ -128,6 +145,10 @@ class _FallbackImageState extends State<FallbackImage> {
       widget.onExhausted!();
       return;
     }
+    if (_i >= _urls.length && widget.exhausted != null) {
+      setState(() {});
+      return;
+    }
     if (_i >= _urls.length) {
       if (_soft && _retry < _autoRetries) {
         Future.delayed(Duration(seconds: 2 << _retry), () { if (mounted && _i >= _urls.length) _again(); });
@@ -143,6 +164,7 @@ class _FallbackImageState extends State<FallbackImage> {
   Widget build(BuildContext context) {
     final us = _urls;
     final cs = Theme.of(context).colorScheme;
+    if (_i >= us.length && widget.exhausted != null) return widget.exhausted!;
     if (_i >= us.length) {
       return GestureDetector(
         onTap: _again,

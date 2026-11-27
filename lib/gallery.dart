@@ -838,7 +838,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
                             TileImage(
                               urls: tileUrls(e.item),
                               label: e.post.title,
-                              onGone: e.index == 0 ? () => MediaCheck.markGone(e.post.id) : null,
+                              video: e.item.type == MediaType.image ? null : e.item,
+                              // A video whose thumbnail is gone may still play: only pictures count as gone here.
+                              onGone: e.index == 0 && e.item.type == MediaType.image ? () => MediaCheck.markGone(e.post.id) : null,
                             ),
                           // Bottom left: where the post came from (mixed feeds only), then the author or archive status.
                           // In a framed block the header names the user and subreddit once for all its pictures.

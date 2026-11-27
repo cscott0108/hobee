@@ -13,7 +13,19 @@ class Embeds {
   static DateTime Function() clock = DateTime.now;
 
   /// Drop the resolved link for [url], so the next [playable] asks the host again.
-  static void forget(String url) => _cache.remove(url);
+  static void forget(String url) {
+    _cache.remove(url);
+    _small.remove(url);
+  }
+
+  /// RedGIFs' smaller (sd) copy for each resolved link, for a tile frame.
+  static final _small = <String, String>{};
+
+  /// A small playable copy of [url] (RedGIFs' sd file when there is one), for reading one frame.
+  static Future<String> smallPlayable(String url) async {
+    final p = await playable(url);
+    return _small[url] ?? p;
+  }
   static http.Client client = http.Client();
 
   /// RedGIFs id (lowercase) from watch/ifr pages, i./v3./media. hosts. Null if not RedGIFs.
@@ -76,6 +88,7 @@ class Embeds {
         if (r.statusCode != 200) throw Exception(r.statusCode == 404 || r.statusCode == 410 ? 'Gone from RedGIFs' : 'RedGIFs said ${r.statusCode}');
         final urls = jsonDecode(r.body)['gif']['urls'] as Map;
         out = (urls['hd'] ?? urls['sd']) as String;
+        if (urls['sd'] is String) _small[url] = urls['sd'] as String;
         break;
       }
     } else if (st != null) {
