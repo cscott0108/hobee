@@ -12,6 +12,7 @@ void main() {
   late int restarts;
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({}); // lets a test pick a profile
     StartLock.debugReset();
     AppLock.debugReset();
     store = {};
