@@ -2,7 +2,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'models.dart';
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, visibleForTesting;
+import 'space.dart';
 
 List<Post> _decodeAll(List<String> js) => js.map((j) => Post.fromJson(jsonDecode(j))).whereType<Post>().toList();
 
@@ -29,9 +30,17 @@ class Db {
   /// running side by side don't lock each other out of one shared database.
   static String fileName = 'hobee.db';
 
+  /// Closes the open database, so the next use opens the current profile's file (tests).
+  @visibleForTesting
+  static Future<void> debugClose() async {
+    final d = _db;
+    _db = null;
+    await d?.close();
+  }
+
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(p.join(await getDatabasesPath(), fileName), version: 12, onUpgrade: (db, o, n) async {
+    _db = await openDatabase(p.join(await getDatabasesPath(), Space.dbFile(fileName)), version: 12, onUpgrade: (db, o, n) async {
       if (o < 2) await _v2(db);
       if (o < 3) await _v3(db);
       if (o < 4) await _v4(db);

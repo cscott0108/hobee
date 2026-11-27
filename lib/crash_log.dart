@@ -5,13 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'clean_image.dart' show isBenignImageError;
+import 'space.dart';
 
 /// Local crash log: every uncaught Flutter, platform or zone error is appended to a file.
 class CrashLog {
   static File? _f;
   static const _max = 200 * 1024;
 
-  static Future<File> _file() async => _f ??= File('${(await getApplicationSupportDirectory()).path}/crash.log');
+  static Future<File> _file() async => _f ??= File('${(await getApplicationSupportDirectory()).path}/${Space.crashFile}');
 
   static Future<void> init() async {
     FlutterError.onError = (d) {

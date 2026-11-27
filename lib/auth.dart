@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+import 'space.dart';
 
 const redirectUri = 'redditgallery://auth';
 const scopes = 'identity read history save mysubreddits';
@@ -24,11 +25,11 @@ class Auth extends ChangeNotifier {
   String get userAgent => 'android:io.github.cscott0108.hobees:v1.0 (by /u/${username ?? 'unknown'})';
 
   Future<void> init() async {
-    clientId = await _s.read(key: 'clientId');
-    accessToken = await _s.read(key: 'access');
-    refreshToken = await _s.read(key: 'refresh');
-    username = await _s.read(key: 'username');
-    expiry = DateTime.fromMillisecondsSinceEpoch(int.tryParse(await _s.read(key: 'expiry') ?? '0') ?? 0);
+    clientId = await _s.read(key: Space.key('clientId'));
+    accessToken = await _s.read(key: Space.key('access'));
+    refreshToken = await _s.read(key: Space.key('refresh'));
+    username = await _s.read(key: Space.key('username'));
+    expiry = DateTime.fromMillisecondsSinceEpoch(int.tryParse(await _s.read(key: Space.key('expiry')) ?? '0') ?? 0);
     _sub = AppLinks().uriLinkStream.listen(_onLink);
     notifyListeners();
   }
@@ -36,9 +37,9 @@ class Auth extends ChangeNotifier {
   Future<void> setClientId(String id) async {
     clientId = id.trim().isEmpty ? null : id.trim();
     if (clientId == null) {
-      await _s.delete(key: 'clientId');
+      await _s.delete(key: Space.key('clientId'));
     } else {
-      await _s.write(key: 'clientId', value: clientId);
+      await _s.write(key: Space.key('clientId'), value: clientId);
     }
     notifyListeners();
   }
@@ -93,9 +94,9 @@ class Auth extends ChangeNotifier {
     accessToken = j['access_token'];
     if (j['refresh_token'] != null) refreshToken = j['refresh_token'];
     expiry = DateTime.now().add(Duration(seconds: (j['expires_in'] ?? 3600) - 60));
-    await _s.write(key: 'access', value: accessToken);
-    await _s.write(key: 'refresh', value: refreshToken);
-    await _s.write(key: 'expiry', value: '${expiry.millisecondsSinceEpoch}');
+    await _s.write(key: Space.key('access'), value: accessToken);
+    await _s.write(key: Space.key('refresh'), value: refreshToken);
+    await _s.write(key: Space.key('expiry'), value: '${expiry.millisecondsSinceEpoch}');
   }
 
   Future<void> _fetchMe() async {
@@ -103,7 +104,7 @@ class Auth extends ChangeNotifier {
         headers: {'Authorization': 'bearer $accessToken', 'User-Agent': userAgent}).timeout(const Duration(seconds: 20));
     if (r.statusCode == 200) {
       username = jsonDecode(r.body)['name'];
-      await _s.write(key: 'username', value: username);
+      await _s.write(key: Space.key('username'), value: username);
     }
   }
 
@@ -119,7 +120,7 @@ class Auth extends ChangeNotifier {
   Future<void> logout() async {
     accessToken = refreshToken = username = null;
     for (final k in ['access', 'refresh', 'username', 'expiry']) {
-      await _s.delete(key: k);
+      await _s.delete(key: Space.key(k));
     }
     notifyListeners();
   }

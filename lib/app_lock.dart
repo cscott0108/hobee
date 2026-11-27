@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'space.dart';
 
 /// App PIN hash: PBKDF2-HMAC-SHA256 with a random 16-byte salt, stored as `v1:<iterations>:<salt>:<hash>`
 /// (base64). The PIN itself is never stored.
@@ -52,9 +53,9 @@ List<int> _pbkdf2(List<int> password, List<int> salt, int iterations) {
 class PinStore {
   static const _key = 'appLockPin';
   final _s = const FlutterSecureStorage();
-  Future<String?> read() => _s.read(key: _key);
-  Future<void> write(String v) => _s.write(key: _key, value: v);
-  Future<void> delete() => _s.delete(key: _key);
+  Future<String?> read() => _s.read(key: Space.key(_key));
+  Future<void> write(String v) => _s.write(key: Space.key(_key), value: v);
+  Future<void> delete() => _s.delete(key: Space.key(_key));
 }
 
 /// Settings → App lock (off by default).
