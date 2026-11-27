@@ -46,6 +46,31 @@ void main() {
     expect(await VideoPoster.of(MediaItem(MediaType.video, 'https://i.imgur.com/x.mp4', '')), isNull);
   });
 
+  test('a video that plays in the viewer gives its tile a frame when the other ways failed', () async {
+    VideoPoster.fetch = (_) async => null;
+    VideoPoster.frame = (_) async => null;
+    final read = <String>[];
+    VideoPoster.frameFromUrl = (u) async {
+      read.add(u);
+      return Uint8List.fromList([0xff, 0xd8, 7]);
+    };
+    final m = MediaItem(MediaType.video, 'https://v.redd.it/q/DASH_720.mp4', '');
+    final other = MediaItem(MediaType.video, 'https://v.redd.it/w/DASH_720.mp4', 'https://preview.redd.it/w.jpg');
+    await VideoPoster.fromPlaying(other, 'https://v.redd.it/w/DASH_720.mp4');
+    expect(read, isEmpty, reason: 'its tile has a picture, so nothing is read');
+
+    VideoPoster.need(m); // the tile showed the film icon
+    expect(await VideoPoster.of(m), isNull);
+    var bumps = 0;
+    VideoPoster.saved.addListener(() => bumps++);
+    await VideoPoster.fromPlaying(m, 'https://v.redd.it/q/HLSPlaylist.m3u8', hls: true);
+    expect(read, ['https://v.redd.it/q/DASH_720.mp4'], reason: 'a stream playlist is read from the plain .mp4 instead');
+    expect(bumps, 1);
+    expect((await VideoPoster.of(m))?.readAsBytesSync(), [0xff, 0xd8, 7]);
+    await VideoPoster.fromPlaying(m, 'https://v.redd.it/q/HLSPlaylist.m3u8', hls: true);
+    expect(read.length, 1, reason: 'once per video');
+  });
+
   test("a video tile doesn't try its backup video file as a picture", () {
     final v = MediaItem(MediaType.video, 'https://media.redgifs.com/x', 'https://external-preview.redd.it/x.jpg',
         preview: 'https://v.redd.it/zz/DASH_480.mp4');

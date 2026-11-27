@@ -10,6 +10,7 @@ import 'models.dart';
 import 'net_guard.dart';
 import 'saved.dart';
 import 'screen_awake.dart';
+import 'video_poster.dart';
 
 /// Player settings, saved.
 class VideoPrefs {
@@ -282,6 +283,7 @@ class _VideoPageState extends State<VideoPage> {
       }
       ctrl.addListener(_tick);
       setState(() => c = ctrl);
+      unawaited(VideoPoster.fromPlaying(widget.item, u, hls: hls)); // a tile with no picture gets this video's frame
       if (widget.active && !VideoPrefs.startPaused.value) _play();
       return true;
     } catch (_) {

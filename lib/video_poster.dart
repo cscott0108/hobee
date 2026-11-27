@@ -19,6 +19,38 @@ class VideoPoster {
   static Future<Uint8List?> Function(String path) frame =
       (p) => const MethodChannel('hobee/media').invokeMethod<Uint8List>('poster', {'path': p, 'width': 360}).timeout(const Duration(seconds: 20));
   static Future<Directory> Function() dir = getTemporaryDirectory;
+  static Future<Uint8List?> Function(String url) frameFromUrl = (u) => const MethodChannel('hobee/media')
+      .invokeMethod<Uint8List>('posterUrl', {'url': u, 'headers': {'User-Agent': Embeds.ua}, 'width': 360})
+      .timeout(const Duration(seconds: 20));
+
+  /// Videos whose tile has no working picture (it showed, or waits for, a frame), by video link.
+  static final _needed = <String>{};
+  static final _fromViewer = <String>{};
+
+  /// Bumps when the viewer saved a frame, so a tile still showing the film icon picks it up.
+  static final saved = ValueNotifier<int>(0);
+
+  static void need(MediaItem m) => _needed.add(m.url);
+
+  /// Third way to a tile frame: [m] just started playing from [url] in the viewer. If its tile has no picture
+  /// and no frame yet, read one straight from that link (streamed, not downloaded whole). Stream playlists
+  /// (.m3u8) can't be read, so a Reddit video uses its plain .mp4 link instead. Once per video.
+  static Future<void> fromPlaying(MediaItem m, String url, {bool hls = false}) async {
+    if (!_needed.contains(m.url) || !_fromViewer.add(m.url) || NetGuard.paused) return;
+    try {
+      final out = await _file(m.url);
+      if (await out.exists()) return;
+      if (await (_done[m.url] ?? Future<File?>.value()) != null) return;
+      final src = !hls ? url : (m.url.startsWith('http') && !m.url.contains('.m3u8') ? m.url : null);
+      if (src == null || !src.startsWith('http')) return;
+      final jpg = await frameFromUrl(src).catchError((_) => null);
+      if (jpg == null || jpg.isEmpty) return;
+      await out.parent.create(recursive: true);
+      await out.writeAsBytes(jpg, flush: true);
+      _done[m.url] = Future.value(out);
+      saved.value++;
+    } catch (_) {}
+  }
 
   static const maxBytes = 8 << 20;
   static const maxRunning = 2;
@@ -107,6 +139,8 @@ class VideoPoster {
   @visibleForTesting
   static void debugReset() {
     _done.clear();
+    _needed.clear();
+    _fromViewer.clear();
     _waiting.clear();
     _running = 0;
   }
@@ -129,13 +163,20 @@ class _VideoPosterImageState extends State<VideoPosterImage> {
   @override
   void initState() {
     super.initState();
+    VideoPoster.need(widget.item);
+    VideoPoster.saved.addListener(_savedElsewhere);
     _load();
+  }
+
+  void _savedElsewhere() {
+    if (f == null) _load();
   }
 
   @override
   void didUpdateWidget(VideoPosterImage old) {
     super.didUpdateWidget(old);
     if (old.item.url != widget.item.url) {
+      VideoPoster.need(widget.item);
       f = null;
       _load();
     }
@@ -144,6 +185,7 @@ class _VideoPosterImageState extends State<VideoPosterImage> {
   @override
   void dispose() {
     _gone = true;
+    VideoPoster.saved.removeListener(_savedElsewhere);
     super.dispose();
   }
 
