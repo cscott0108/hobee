@@ -75,7 +75,7 @@ class PanicProfile {
   /// crash log, logins and PIN. Your own profile isn't touched.
   static Future<void> wipe() async {
     final prefix = Space.keyPrefix(id);
-    for (final k in (await secure.readAll()).keys.where((k) => k.startsWith(prefix))) {
+    for (final k in (await secure.readAll()).keys.where((k) => k.startsWith(prefix)).toList()) {
       await secure.delete(key: k);
     }
     await dropPrefs(Space.prefsPrefix(id));
