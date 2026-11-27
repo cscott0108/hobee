@@ -140,4 +140,18 @@ void main() {
     expect(AppLock.hasPin.value, isTrue);
     expect(AppLock.locked.value, isFalse, reason: 'not even asked to unlock');
   });
+
+  testWidgets("in the panic profile its PIN can be changed but not removed", (t) async {
+    await t.runAsync(() async {
+      await AppLock.setPin('1111');
+      await PanicProfile.setPin('2222');
+    });
+    Space.open(1);
+    await t.runAsync(() async => AppLock.hasPin.value = await AppLock.pinStore.read() != null);
+    await t.pumpWidget(app());
+    expect(find.text('Change app PIN'), findsOneWidget);
+    expect(find.byKey(const Key('lock-pin-remove')), findsNothing);
+    expect(find.byKey(const Key('lock-panic')), findsNothing);
+    expect(await t.runAsync(StartLock.isOn), isTrue);
+  });
 }

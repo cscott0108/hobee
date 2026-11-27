@@ -274,6 +274,7 @@ class _AppLockSettingsState extends State<AppLockSettings> {
   }
 
   Future<void> _removePin() async {
+    if (Space.id != 0) return;
     if (PanicProfile.on.value) {
       _say('Turn the panic profile off first. Without your app PIN only the panic profile would open.');
       return;
@@ -349,7 +350,8 @@ class _AppLockSettingsState extends State<AppLockSettings> {
             title: Text(AppLock.hasPin.value ? 'Change app PIN' : 'Set an app PIN'),
             subtitle: const Text('Optional. Works even without fingerprints or a phone screen lock.'),
             onTap: _pin,
-            trailing: AppLock.hasPin.value ? TextButton(key: const Key('lock-pin-remove'), onPressed: _removePin, child: const Text('Remove')) : null,
+            // Not in the panic profile: its PIN is the panic PIN, and removing it would turn the start-up screen off.
+            trailing: AppLock.hasPin.value && Space.id == 0 ? TextButton(key: const Key('lock-pin-remove'), onPressed: _removePin, child: const Text('Remove')) : null,
           ),
           SwitchListTile(
             key: const Key('lock-recents'),
