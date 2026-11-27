@@ -14,6 +14,7 @@ import 'glass.dart';
 import 'models.dart';
 import 'viewer.dart';
 import 'removed_media.dart';
+import 'nav.dart';
 
 /// Fade plus a small rise, used for search screens.
 Route<T> fadeRoute<T>(Widget w) => PageRouteBuilder<T>(
@@ -172,10 +173,7 @@ void openPost(BuildContext context, Post p) {
 /// Moves [p] to the text posts by hand, with an Undo.
 void moveToText(BuildContext context, Post p) {
   RemovedMedia.manual(p);
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: const Text('Moved to text posts'),
-    action: SnackBarAction(label: 'Undo', onPressed: () => RemovedMedia.restore(p.id)),
-  ));
+  showUndo(ScaffoldMessenger.of(context), 'Moved to text posts', () => RemovedMedia.restore(p.id));
 }
 
 /// Long-press menu for any tile or row.

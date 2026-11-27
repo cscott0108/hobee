@@ -70,13 +70,7 @@ bool backToSub() {
   final who = Viewed.lastMarked;
   Viewed.lastMarked = null;
   if (who != null && Viewed.hide.value) {
-    messengerKey.currentState
-      ?..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text('Hid posts by u/$who (viewed)'),
-        duration: const Duration(seconds: 4),
-        action: SnackBarAction(label: 'Undo', onPressed: () => Viewed.unmark(who)),
-      ));
+    showUndo(messengerKey.currentState, 'Hid posts by u/$who (viewed)', () => Viewed.unmark(who));
   }
   return true;
 }

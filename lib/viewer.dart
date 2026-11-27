@@ -22,6 +22,7 @@ import 'screen_awake.dart';
 import 'source_bar.dart';
 import 'sub_users.dart';
 import 'removed_media.dart';
+import 'nav.dart';
 
 const viewerUserAgent = 'android:io.github.cscott0108.hobees:v$appVersion (gallery app)';
 
@@ -265,10 +266,7 @@ class _ViewerState extends State<Viewer> {
                       final p = e.post;
                       RemovedMedia.manual(p);
                       Navigator.pop(context); // the post leaves the grid it was opened from
-                      m.showSnackBar(SnackBar(
-                        content: const Text('Moved to text posts'),
-                        action: SnackBarAction(label: 'Undo', onPressed: () => RemovedMedia.restore(p.id)),
-                      ));
+                      showUndo(m, 'Moved to text posts', () => RemovedMedia.restore(p.id));
                     },
                     itemBuilder: (_) => const [
                       PopupMenuItem(

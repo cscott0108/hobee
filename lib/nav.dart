@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'accounts.dart';
@@ -36,6 +37,19 @@ bool backToPrev() {
 /// Called right before leaving subreddit results for a profile (saves and clears post filters).
 void Function(String user)? onLeaveSub;
 final messengerKey = GlobalKey<ScaffoldMessengerState>();
+
+/// A bottom message with an Undo that closes by itself after [duration]. One with an action button would
+/// otherwise stay on screen until it's tapped or swiped away.
+void showUndo(ScaffoldMessengerState? m, String text, VoidCallback undo, {Duration duration = const Duration(seconds: 4)}) {
+  if (m == null) return;
+  m.hideCurrentSnackBar();
+  final c = m.showSnackBar(SnackBar(content: Text(text), duration: duration, action: SnackBarAction(label: 'Undo', onPressed: undo)));
+  Timer(duration, () {
+    try {
+      c.close();
+    } catch (_) {}
+  });
+}
 
 final cleanUser = RegExp(r'^/?u(ser)?/');
 final cleanSub = RegExp(r'^/?r/');
