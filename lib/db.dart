@@ -304,6 +304,43 @@ class Db {
     return (out, more);
   }
 
+  /// Posts the account suggestions learn from: the newest [cap] outside the Following lists (what you viewed
+  /// and searched), each once, newest first. Reading every saved post here decoded all the Following posts
+  /// (160k, about 1.8 GB) each time a user's page opened.
+  static Future<List<Post>> loadForSuggestions({int cap = 5000}) async {
+    final d = await db;
+    final ids = [
+      for (final r in await d.rawQuery("SELECT rowid AS r FROM posts WHERE source NOT LIKE 'fol:%' ORDER BY created DESC LIMIT ?",
+          [cap * 2])) // the same post can be saved under several sources
+        r['r'] as int
+    ];
+    final out = <Post>[];
+    final seen = <String>{};
+    for (var i = 0; i < ids.length && out.length < cap; i += chunkRows) {
+      final part = ids.sublist(i, i + chunkRows > ids.length ? ids.length : i + chunkRows);
+      final rows = await d.rawQuery('SELECT rowid AS r, json FROM posts WHERE rowid IN (${List.filled(part.length, '?').join(',')})', part);
+      // IN returns rows in storage order: put them back newest first before the cap picks.
+      final byId = {for (final r in rows) r['r'] as int: r['json'] as String};
+      final raw = [for (final id in part) ?byId[id]];
+      for (final p in raw.length > 150 ? await compute(_decodeAll, raw) : _decodeAll(raw)) {
+        if (out.length < cap && seen.add(p.id)) out.add(p);
+      }
+    }
+    out.sort((a, b) => b.created.compareTo(a.created));
+    return out;
+  }
+
+  /// Subreddits [author] posted in, with how many posts, from the indexed columns (nothing decoded). Empty until
+  /// [channelsReady].
+  static Future<Map<String, int>> subsOf(String author) async {
+    if (!channelsReady) return const {};
+    final d = await db;
+    final rows = await d.rawQuery(
+        "SELECT sub, COUNT(DISTINCT id) AS n FROM posts WHERE author=? AND sub IS NOT NULL AND sub != '' GROUP BY sub",
+        [author.toLowerCase()]);
+    return {for (final r in rows) r['sub'] as String: r['n'] as int};
+  }
+
   /// Every cached post once (by id), newest first. Decoded off the UI thread.
   static Future<List<Post>> loadEverything() => _loadChunked('1=1', const [], onePerId: true);
 

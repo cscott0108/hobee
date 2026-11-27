@@ -1,5 +1,6 @@
 import 'following.dart';
 import 'pace_log.dart';
+import 'perf_log.dart';
 import 'tile_image.dart';
 import 'follows.dart';
 import 'age.dart';
@@ -88,9 +89,15 @@ class _GalleryScreenState extends State<GalleryScreen> {
     return src.split('|').first;
   }
 
-  void _gridLog(String what, [String extra = '']) => PaceLog.marker('grid_$what',
-          'feed=${_kind(_loaded)};posts=${_all.length};shown=${entries.length};cap=$_cap;you_scrolled=$_youScrolled${extra.isEmpty ? '' : ';$extra'}')
-      .ignore();
+  void _gridLog(String what, [String extra = '']) {
+    PaceLog.marker('grid_$what',
+            'feed=${_kind(_loaded)};posts=${_all.length};shown=${entries.length};cap=$_cap;you_scrolled=$_youScrolled${extra.isEmpty ? '' : ';$extra'}')
+        .ignore();
+    if (what == 'switch' || what == 'hold') PerfLog.soon('grid_$what');
+  }
+
+  /// What's on screen for the perf samples (no names).
+  String _perfContext() => 'feed=${_kind(_loaded)};posts=${_all.length};shown=${entries.length}';
   Timer? _placeT;
 
   void _savePlace() {
@@ -197,6 +204,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     dateRange.addListener(_seek);
     Viewed.names.addListener(_viewedChanged);
     Viewed.hide.addListener(_viewedChanged);
+    PerfLog.context = _perfContext;
     sc.addListener(() {
       if (sc.position.pixels > sc.position.maxScrollExtent - 1200) _more();
       _placeT?.cancel();
@@ -207,6 +215,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   @override
   void dispose() {
+    if (PerfLog.context == _perfContext) PerfLog.context = () => '';
     _retryT?.cancel();
     _placeT?.cancel();
     currentSource.removeListener(_switch);

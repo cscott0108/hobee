@@ -83,7 +83,7 @@ String paceKind(Uri u) {
 /// back, Arctic Shift's reset hints), plus markers, so the fetching pace can be tuned from real numbers. It keeps
 /// the newest [keep] rows, stays on the phone and holds no subreddit or user names.
 class PaceLog {
-  static int keep = 5000;
+  static int keep = 10000;
 
   /// Set by the background task, so its requests are told apart from the open app's.
   static bool inBackgroundTask = false;

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'glass.dart';
+import 'perf_log.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'accounts.dart';
@@ -94,6 +95,7 @@ class _ViewerState extends State<Viewer> {
     videoControlsShown.value = true;
     videoControlsShown.addListener(_videoUi);
     ScreenAwake.viewerOpened();
+    PerfLog.soon('viewer');
     if (!widget.local) {
       markRead(widget.entries[widget.start].post.id);
       Interest.opened(widget.entries[widget.start].post);
@@ -147,6 +149,7 @@ class _ViewerState extends State<Viewer> {
       key: ValueKey('${it.url}|${it.thumb}'),
       onRemoved: goneId == null ? null : () => MediaCheck.markGone(goneId),
       urls: [url, it.full, it.url, ?it.preview, it.thumb],
+      animated: it.type == MediaType.gif,
       placeholder: it.thumb.startsWith('http') || isLocalPath(it.thumb) ? gridThumbProvider(it.thumb) : null);
 
   /// Start decoding the next images' originals so swiping to them is instant. Same provider and size cap as
@@ -281,11 +284,17 @@ int viewerMaxPx(BuildContext context) {
 }
 
 /// Provider the viewer uses for a full-size URL. Prefetch must use the same one so the cache is hit.
-ImageProvider viewerProvider(String u, int maxPx) {
+/// An animated picture (GIF): the JPEG cleanup reads one frame only, so these skip it.
+bool looksAnimated(String u) {
+  final p = Uri.tryParse(u);
+  return RegExp(r'\.gif$', caseSensitive: false).hasMatch(p?.path ?? u) || p?.queryParameters['format'] == 'gif';
+}
+
+ImageProvider viewerProvider(String u, int maxPx, {bool animated = false}) {
   // Saved files (Hobees gallery) were already cleaned when saved.
   if (isLocalPath(u)) return ResizeImage(FileImage(File(u)), width: maxPx, policy: ResizeImagePolicy.fit, allowUpscaling: false);
   // Reddit JPEGs: clean up the compression first (blocks, bleeding reds). Same size cap as below.
-  if (cleanJpegs.value) return CleanNetworkImage(u, maxPx, headers: const {'User-Agent': viewerUserAgent});
+  if (cleanJpegs.value && !animated && !looksAnimated(u)) return CleanNetworkImage(u, maxPx, headers: const {'User-Agent': viewerUserAgent});
   return ResizeImage(NetworkImage(u, headers: const {'User-Agent': viewerUserAgent}), width: maxPx, policy: ResizeImagePolicy.fit, allowUpscaling: false);
 }
 
@@ -314,7 +323,9 @@ class PhotoFallback extends StatefulWidget {
   final ImageProvider Function(String url, int maxPx)? providerFor;
   /// Called once when every URL answered 404/410 (the picture was deleted).
   final VoidCallback? onRemoved;
-  const PhotoFallback({super.key, required this.urls, this.placeholder, this.providerFor, this.onRemoved});
+  /// A GIF: loaded without the JPEG cleanup, which keeps one frame only.
+  final bool animated;
+  const PhotoFallback({super.key, required this.urls, this.placeholder, this.providerFor, this.onRemoved, this.animated = false});
   @override
   State<PhotoFallback> createState() => PhotoFallbackState();
 }
@@ -377,7 +388,7 @@ class PhotoFallbackState extends State<PhotoFallback> {
     s.addListener(l);
   }
 
-  ImageProvider _provider(String u, int maxPx) => widget.providerFor?.call(u, maxPx) ?? viewerProvider(u, maxPx);
+  ImageProvider _provider(String u, int maxPx) => widget.providerFor?.call(u, maxPx) ?? viewerProvider(u, maxPx, animated: widget.animated);
 
   void _failed(String u, Object err) {
     final us = urls;

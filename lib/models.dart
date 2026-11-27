@@ -100,6 +100,15 @@ String _thumb(Map d) {
   return '';
 }
 
+/// Reddit's MP4 copy of a GIF post (preview.images[0].variants.mp4), or null.
+String? gifMp4(Map d) {
+  try {
+    final u = d['preview']['images'][0]['variants']['mp4']['source']['url'];
+    if (u is String && u.startsWith('http')) return unesc(u);
+  } catch (_) {}
+  return null;
+}
+
 int? _px(Object? v) => v is num && v > 0 ? v.toInt() : null;
 
 /// Post-level media size: reddit_video, then preview source, then oEmbed. (null, null) when none is given.
@@ -230,9 +239,13 @@ List<MediaItem> _parseMedia(Map<String, dynamic> d0) {
   // GIF with reddit mp4 preview
   final rvp = d['preview']?['reddit_video_preview'];
   if (lower.endsWith('.gif') || rvp != null) {
+    final mp4 = gifMp4(d);
     if (rvp != null && rvp['fallback_url'] != null) {
       out.add(MediaItem(MediaType.video, unesc(rvp['fallback_url']), thumb,
           hls: rvp['hls_url'] != null ? unesc(rvp['hls_url']) : Embeds.redditHls(unesc(rvp['fallback_url']))));
+    } else if (mp4 != null) {
+      // Reddit's MP4 copy: plays in the video player (play/pause, progress) and takes far less memory.
+      out.add(MediaItem(MediaType.video, mp4, thumb.isEmpty ? url : thumb));
     } else {
       out.add(MediaItem(MediaType.gif, url, thumb.isEmpty ? url : thumb));
     }
