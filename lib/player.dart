@@ -16,6 +16,10 @@ class VideoPrefs {
   static final muted = ValueNotifier<bool>(false);
   static final loop = ValueNotifier<bool>(true);
   static final speed = ValueNotifier<double>(1);
+  /// Play over music or podcasts instead of pausing them (no audio focus). Muted videos always do.
+  static final mixAudio = ValueNotifier<bool>(false);
+  /// Swiping to a video shows its first frame and waits for a tap on play.
+  static final startPaused = ValueNotifier<bool>(false);
   /// Right-hand time label: true shows time left (-1:23), false the total length. Tap it to switch.
   static final showRemaining = ValueNotifier<bool>(true);
   static final _pos = <String, int>{};
@@ -28,6 +32,10 @@ class VideoPrefs {
     loop.value = sp.getBool('videoLoop') ?? true;
     speed.value = sp.getDouble('videoSpeed') ?? 1;
     showRemaining.value = sp.getBool('videoRemaining') ?? true;
+    mixAudio.value = sp.getBool('videoMixAudio') ?? false;
+    startPaused.value = sp.getBool('videoStartPaused') ?? false;
+    mixAudio.addListener(() => sp.setBool('videoMixAudio', mixAudio.value));
+    startPaused.addListener(() => sp.setBool('videoStartPaused', startPaused.value));
     showRemaining.addListener(() => sp.setBool('videoRemaining', showRemaining.value));
     startMuted.addListener(() {
       sp.setBool('startMuted', startMuted.value);
@@ -40,6 +48,9 @@ class VideoPrefs {
       _pos[k.substring(5)] = sp.getInt(k) ?? 0;
     }
   }
+
+  /// Whether a video opened now leaves other apps' audio playing.
+  static bool get mixes => mixAudio.value || muted.value;
 
   static int resumeAt(String url) => _pos[url] ?? 0;
 
@@ -179,10 +190,11 @@ class _VideoPageState extends State<VideoPage> {
     final srcs = await videoSources(widget.item);
     Object? last;
     for (final (u, hls) in srcs) {
+      final opts = VideoPlayerOptions(mixWithOthers: VideoPrefs.mixes);
       final ctrl = isLocalPath(u)
-          ? VideoPlayerController.file(File(u))
+          ? VideoPlayerController.file(File(u), videoPlayerOptions: opts)
           : VideoPlayerController.networkUrl(Uri.parse(u),
-              formatHint: hls ? VideoFormat.hls : null, httpHeaders: const {'User-Agent': Embeds.ua});
+              formatHint: hls ? VideoFormat.hls : null, httpHeaders: const {'User-Agent': Embeds.ua}, videoPlayerOptions: opts);
       try {
         await ctrl.initialize();
         await ctrl.setLooping(VideoPrefs.loop.value);
@@ -196,7 +208,7 @@ class _VideoPageState extends State<VideoPage> {
         }
         ctrl.addListener(_tick);
         setState(() => c = ctrl);
-        if (widget.active) _play();
+        if (widget.active && !VideoPrefs.startPaused.value) _play();
         return;
       } catch (e) {
         last = e;
@@ -281,7 +293,7 @@ class _VideoPageState extends State<VideoPage> {
       ui = true; // controls show again when you swipe back to this video (the viewer's panels show with them)
       if (c == null) {
         _init();
-      } else {
+      } else if (!VideoPrefs.startPaused.value) {
         _play();
       }
     } else {
