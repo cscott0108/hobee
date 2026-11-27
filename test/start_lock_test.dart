@@ -74,6 +74,7 @@ void main() {
     Future<void> enter(String pin) async {
       for (final d in pin.split('')) {
         await t.tap(find.byKey(Key('pin-$d')));
+        await t.pump();
       }
       await t.tap(find.byKey(const Key('pin-ok')));
       await t.pump();
