@@ -67,6 +67,16 @@ void main() {
     expect(NetGuard.backgroundAllowed(on: true, net: cafeVpn, trustedHandle: null, mobileOk: true, vpnOk: false), isFalse);
   });
 
+  test('in the background the hidden Wi-Fi name of the connection last seen trusted stays allowed', () {
+    const hidden = NetInfo(NetType.wifi, handle: 7);
+    NetDecision d(NetInfo n, bool same) => NetGuard.decide(
+        on: true, net: n, trustedNets: const [home], onUntrusted: UntrustedWifi.pause, mobileOk: true, hiddenOnTrusted: same);
+    expect(d(hidden, true), NetDecision.allow);
+    expect(d(hidden, false), NetDecision.pause, reason: 'another connection with a hidden name still pauses');
+    expect(d(const NetInfo(NetType.wifi, ssid: 'Cafe', bssid: 'aa:bb', handle: 7), true), NetDecision.pause,
+        reason: 'a visible name that is not trusted still pauses');
+  });
+
   test('background refresh: only on the connection last seen trusted, or mobile data if allowed', () {
     bool bg(NetInfo n, {int? handle = 100, bool mobile = true, bool on = true}) =>
         NetGuard.backgroundAllowed(on: on, net: n, trustedHandle: handle, mobileOk: mobile);
