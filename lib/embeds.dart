@@ -6,7 +6,14 @@ class Embeds {
   static const ua = 'Mozilla/5.0 (Linux; Android 14) Hobees';
   static String? _token;
   static DateTime _tokenUntil = DateTime(2000);
-  static final _cache = <String, String>{};
+  /// Resolved links with when they were resolved. RedGIFs links are signed and expire, so they're kept
+  /// for [cacheFor] only.
+  static final _cache = <String, (String, DateTime)>{};
+  static Duration cacheFor = const Duration(hours: 1);
+  static DateTime Function() clock = DateTime.now;
+
+  /// Drop the resolved link for [url], so the next [playable] asks the host again.
+  static void forget(String url) => _cache.remove(url);
   static http.Client client = http.Client();
 
   /// RedGIFs id (lowercase) from watch/ifr pages, i./v3./media. hosts. Null if not RedGIFs.
@@ -53,16 +60,19 @@ class Embeds {
   }
 
   /// Direct playable mp4 (or the url as is when it's already direct).
-  static Future<String> playable(String url) async {
-    if (_cache[url] != null) return _cache[url]!;
+  /// A link the player can open for [url]. With [fresh], skip the saved link and the saved RedGIFs token
+  /// and ask again (also for a RedGIFs .mp4 link, which may have expired).
+  static Future<String> playable(String url, {bool fresh = false}) async {
+    final hit = _cache[url];
+    if (!fresh && hit != null && clock().difference(hit.$2) < cacheFor) return hit.$1;
     String out = url;
     final rg = redgifsId(url);
     final st = streamableId(url);
-    if (rg != null && !url.contains('.mp4')) {
-      for (final fresh in [false, true]) {
-        final t = await _redgifsToken(fresh: fresh);
+    if (rg != null && (fresh || !url.contains('.mp4'))) {
+      for (final newToken in fresh ? const [true] : const [false, true]) {
+        final t = await _redgifsToken(fresh: newToken);
         final r = await client.get(Uri.parse('https://api.redgifs.com/v2/gifs/$rg'), headers: {'User-Agent': ua, 'Authorization': 'Bearer $t'});
-        if (r.statusCode == 401 && !fresh) continue;
+        if (r.statusCode == 401 && !newToken) continue;
         if (r.statusCode != 200) throw Exception(r.statusCode == 404 || r.statusCode == 410 ? 'Gone from RedGIFs' : 'RedGIFs said ${r.statusCode}');
         final urls = jsonDecode(r.body)['gif']['urls'] as Map;
         out = (urls['hd'] ?? urls['sd']) as String;
@@ -76,7 +86,7 @@ class Embeds {
       if (u.startsWith('//')) u = 'https:$u';
       out = u;
     }
-    _cache[url] = out;
+    _cache[url] = (out, clock());
     return out;
   }
 }
