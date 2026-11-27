@@ -40,6 +40,7 @@ import 'net_ui.dart';
 import 'reddit_session.dart';
 import 'reddit_login.dart';
 import 'downloaded.dart';
+import 'removed_media.dart';
 
 const accent = Color(0xFFE53935);
 final themeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
@@ -89,6 +90,7 @@ Future<void> _main() async {
   await _safe('viewed', Viewed.load);
   await _safe('follows', FollowStore.load);
   await _safe('downloads', Downloaded.load);
+  await _safe('removedMedia', RemovedMedia.load);
   await _safe('background', BackgroundRefresh.load);
   await _safe('followPace', Following.loadPrefs);
   PaceLog.marker('app_start').ignore();

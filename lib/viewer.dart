@@ -21,6 +21,8 @@ import 'saved.dart';
 import 'screen_awake.dart';
 import 'source_bar.dart';
 import 'sub_users.dart';
+import 'removed_media.dart';
+import 'nav.dart';
 
 const viewerUserAgent = 'android:io.github.cscott0108.hobees:v$appVersion (gallery app)';
 
@@ -130,9 +132,9 @@ class _ViewerState extends State<Viewer> {
         return;
       }
     }
-    m.showSnackBar(SnackBar(content: Text('Downloading ${items.length} item(s)…')));
+    // The download button spins while these download (the bottom message could vanish before you saw it).
     var ok = 0;
-    for (final it in items) {
+    Future<void> one(MediaItem it) async {
       try {
         await Downloader.save(it, e.post, profile: followingProfile(effectiveSource()));
         ok++;
@@ -141,7 +143,7 @@ class _ViewerState extends State<Viewer> {
         // The host only serves a "removed" placeholder: never saved as if real. Offer the grid's thumbnail.
         if (!mounted || !it.thumb.startsWith('http') || !await _offerThumb(it)) {
           m.showSnackBar(const SnackBar(content: Text('Not saved: it was removed from its host')));
-          continue;
+          return;
         }
         try {
           await Downloader.saveThumb(it, e.post, profile: followingProfile(effectiveSource()));
@@ -152,6 +154,11 @@ class _ViewerState extends State<Viewer> {
       } catch (err) {
         m.showSnackBar(SnackBar(content: Text('Failed: $err')));
       }
+    }
+
+    Downloader.queue([for (final it in items) it.url]);
+    for (final it in items) {
+      await Downloader.tracking(it.url, () => one(it));
     }
     m.showSnackBar(SnackBar(content: Text('Saved $ok/${items.length} to ${saveTo.value == SaveTo.phone ? 'the phone gallery' : 'Hobees gallery'}')));
   }
@@ -220,9 +227,15 @@ class _ViewerState extends State<Viewer> {
               foregroundColor: Colors.white,
               title: Text(e.post.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
               actions: widget.actions?.call(context, e) ?? [
-                ValueListenableBuilder(
-                  valueListenable: Downloaded.urls,
-                  builder: (_, d, _) => d.contains(e.item.url)
+                ListenableBuilder(
+                  listenable: Listenable.merge([Downloaded.urls, Downloader.active]),
+                  builder: (_, _) => Downloader.active.value.contains(e.item.url)
+                      ? const IconButton(
+                          key: Key('viewer-downloading'),
+                          tooltip: 'Downloading',
+                          onPressed: null,
+                          icon: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white)))
+                      : Downloaded.urls.value.contains(e.item.url)
                       ? IconButton(
                           key: const Key('viewer-downloaded'),
                           icon: const Icon(Icons.download_done),
@@ -231,10 +244,38 @@ class _ViewerState extends State<Viewer> {
                       : IconButton(icon: const Icon(Icons.download), tooltip: 'Download', onPressed: () => _download()),
                 ),
                 if (e.post.media.length > 1)
-                  IconButton(icon: const Icon(Icons.download_for_offline), tooltip: 'Download all', onPressed: () => _download(all: true)),
+                  ValueListenableBuilder(
+                    valueListenable: Downloader.active,
+                    builder: (_, a, _) => e.post.media.any((x) => a.contains(x.url))
+                        ? const IconButton(
+                            key: Key('viewer-downloading-all'),
+                            tooltip: 'Downloading',
+                            onPressed: null,
+                            icon: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white)))
+                        : IconButton(icon: const Icon(Icons.download_for_offline), tooltip: 'Download all', onPressed: () => _download(all: true)),
+                  ),
                 IconButton(
                     tooltip: 'Open in browser', icon: const Icon(Icons.open_in_new),
                     onPressed: () => launchUrl(Uri.parse('https://www.reddit.com${e.post.permalink}'), mode: LaunchMode.externalApplication)),
+                if (!widget.local)
+                  PopupMenuButton<String>(
+                    key: const Key('viewer-more'),
+                    tooltip: 'More',
+                    onSelected: (_) {
+                      final m = ScaffoldMessenger.of(context);
+                      final p = e.post;
+                      RemovedMedia.manual(p);
+                      Navigator.pop(context); // the post leaves the grid it was opened from
+                      showUndo(m, 'Moved to text posts', () => RemovedMedia.restore(p.id));
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'removed',
+                        key: Key('viewer-media-removed'),
+                        child: ListTile(leading: Icon(Icons.hide_image_outlined), title: Text('Media removed: move to text posts'), contentPadding: EdgeInsets.zero),
+                      ),
+                    ],
+                  ),
               ],
             )
           : null,
@@ -266,7 +307,10 @@ class _ViewerState extends State<Viewer> {
             itemBuilder: (_, i) {
               final it = widget.entries[i].item;
               final gid = widget.local || widget.entries[i].index != 0 ? null : widget.entries[i].post.id;
-              if (it.type == MediaType.video) return VideoPage(item: it, active: i == cur);
+              if (it.type == MediaType.video) {
+                final post = widget.entries[i].post;
+                return VideoPage(item: it, active: i == cur, onRemoved: widget.local ? null : (code) => RemovedMedia.dead(post, code));
+              }
               if (isDeep(currentSource.value) && !isLocalPath(it.url)) {
                 return FutureBuilder<String?>(
                   future: MediaCheck.resolve(widget.entries[i].post, it),

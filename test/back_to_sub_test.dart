@@ -37,5 +37,8 @@ void main() {
     await t.pumpAndSettle(const Duration(milliseconds: 100));
     await t.tap(find.text('Undo'));
     expect(Viewed.has('amy'), isFalse);
+    await t.pump(const Duration(seconds: 5)); // the message closes by itself
+    await t.pumpAndSettle();
+    expect(find.text('Undo'), findsNothing);
   });
 }

@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'db.dart';
 import 'models.dart';
 import 'space.dart';
+import 'video_poster.dart';
 
 /// One file in the private Hobees gallery (Phase 6). The file lives in app-private storage, so the
 /// phone's gallery and other apps can't see it; the row keeps where it came from.
@@ -104,6 +105,38 @@ class SavedStore {
     final r = await (await Db.db).rawQuery('SELECT COUNT(*) AS n FROM saved');
     return r.first['n'] as int? ?? 0;
   }
+
+  /// Test seam: one JPEG frame from a video file on the phone.
+  static Future<Uint8List?> Function(String path) videoFrame = (p) => VideoPoster.frame(p);
+
+  static final _making = <int>{};
+
+  /// A saved video with no working grid picture (its post had none, or it was dead when downloaded): take a
+  /// frame from the saved file itself and keep it as the thumbnail. Once per item per session; null if it can't.
+  static Future<String?> makeThumb(SavedItem it) async {
+    final id = it.id;
+    if (id == null || !it.isVideo || !_making.add(id)) return null;
+    try {
+      final jpg = await videoFrame(it.path);
+      if (jpg == null || jpg.isEmpty) return null;
+      final t = await newFile('jpg', suffix: '_t');
+      await t.writeAsBytes(jpg, flush: true);
+      await (await Db.db).update('saved', {'thumb': t.path}, where: 'id=?', whereArgs: [id]);
+      final old = it.thumb;
+      if (old != null && old != t.path && isLocalPath(old)) {
+        try {
+          await File(old).delete();
+        } catch (_) {}
+      }
+      changes.value++;
+      return t.path;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @visibleForTesting
+  static void debugResetThumbs() => _making.clear();
 
   /// Remembers a picture's size (measured from the file), so its tile keeps its shape. No reload.
   static Future<void> setSize(int id, int w, int h) async =>

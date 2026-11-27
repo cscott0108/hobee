@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'archive.dart' show isGoneError;
+import 'archive.dart' show isGoneError, isRefusedError;
 import 'models.dart';
+import 'video_poster.dart';
 
 /// Addresses a grid tile can show for [m], in order: the small preview, Reddit's resized copy, and for pictures
-/// the original (decoded at tile size). The viewer tries the same ones, so a tile no longer stays broken when
+/// the original (decoded at tile size). A video's backup copy is a video file, so it isn't tried as a picture. The viewer tries the same ones, so a tile no longer stays broken when
 /// the picture itself opens fine.
 List<String> tileUrls(MediaItem m) => {
       if (m.thumb.isNotEmpty) m.thumb,
-      if ((m.preview ?? '').isNotEmpty) m.preview!,
+      if (m.type == MediaType.image && (m.preview ?? '').isNotEmpty) m.preview!,
       if (m.type == MediaType.image && m.url.startsWith('http')) m.url,
     }.toList();
 
@@ -33,14 +34,20 @@ class TileImage extends StatefulWidget {
   final int cacheWidth;
   final String? label;
   final VoidCallback? onGone;
-  const TileImage({super.key, required this.urls, this.cacheWidth = 360, this.label, this.onGone});
+  /// For a video tile: when there's no picture or none loads, show a frame from the video instead.
+  final MediaItem? video;
+  /// Runs once if every address answered refused or deleted (401/403/404/410).
+  final VoidCallback? onRefused;
+  /// For [video]: no frame could be made and every link of the video answered refused / deleted (the code).
+  final void Function(int code)? onDead;
+  const TileImage({super.key, required this.urls, this.cacheWidth = 360, this.label, this.onGone, this.video, this.onRefused, this.onDead});
   @override
   State<TileImage> createState() => _TileImageState();
 }
 
 class _TileImageState extends State<TileImage> {
   int i = 0;
-  bool allGone = true;
+  bool allGone = true, allRefused = true;
 
   @override
   void didUpdateWidget(TileImage old) {
@@ -48,11 +55,13 @@ class _TileImageState extends State<TileImage> {
     if (old.urls.join('|') != widget.urls.join('|')) {
       i = 0;
       allGone = true;
+      allRefused = true;
     }
   }
 
   void _failed(Object err) {
     if (!isGoneError(err)) allGone = false;
+    if (!isRefusedError(err)) allRefused = false;
     final next = i + 1;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -61,6 +70,7 @@ class _TileImageState extends State<TileImage> {
       } else {
         setState(() => i = widget.urls.length);
         if (allGone) widget.onGone?.call();
+        if (allRefused) widget.onRefused?.call();
       }
     });
   }
@@ -69,6 +79,8 @@ class _TileImageState extends State<TileImage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     Widget broken() => Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.broken_image));
+    final v = widget.video;
+    if (v != null && (widget.urls.isEmpty || i >= widget.urls.length)) return VideoPosterImage(item: v, cacheWidth: widget.cacheWidth, onDead: widget.onDead);
     if (widget.urls.isEmpty) return Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.movie));
     if (i >= widget.urls.length) return broken();
     final u = widget.urls[i];

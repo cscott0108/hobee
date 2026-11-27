@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Wi-Fi safety (Phase 5b): Hobees only goes online by itself on trusted networks. On any other Wi-Fi it
@@ -87,12 +88,15 @@ class NetGuard {
     bool vpnOk = true,
     NetInfo? once,
     NetInfo? mobileOnce,
+    bool hiddenOnTrusted = false,
   }) {
     if (!on || net == null) return NetDecision.allow;
     if (net.vpn && vpnOk) return NetDecision.allow; // tunneled: the network underneath only sees encrypted traffic
     switch (net.type) {
       case NetType.wifi:
         if (trustedNets.any((t) => t.matches(net))) return NetDecision.allow;
+        // In the background Android hides the Wi-Fi name: the very connection last seen trusted stays allowed.
+        if (hiddenOnTrusted && net.ssid == null) return NetDecision.allow;
         if (once != null && once.same(net)) return NetDecision.allow;
         if (mobileOnce != null && mobileOnce.same(net)) return mobileOk ? NetDecision.mobileData : NetDecision.pause;
         return switch (onUntrusted) {
@@ -154,6 +158,12 @@ class NetGuard {
     mobileData.addListener(() => sp.setBool('netMobileData', mobileData.value));
     trusted.addListener(() => sp.setString('netTrusted', jsonEncode([for (final t in trusted.value) t.toJson()])));
     _wire();
+    if (!_observing) {
+      try {
+        WidgetsBinding.instance.addObserver(_Resume());
+        _observing = true;
+      } catch (_) {} // no app binding (unit tests)
+    }
     HttpOverrides.global = GuardedHttp();
     _ch.setMethodCallHandler((c) async {
       if (c.method == 'changed') _changedSoon();
@@ -164,7 +174,7 @@ class NetGuard {
     await refresh();
   }
 
-  static bool _wired = false;
+  static bool _wired = false, _observing = false;
 
   /// Any settings change re-checks the network at once.
   static void _wire() {
@@ -214,14 +224,31 @@ class NetGuard {
     }();
   }
 
+  /// Test seam: whether Hobees is on screen (Android only shows it the Wi-Fi name then).
+  @visibleForTesting
+  static bool Function() foreground = () {
+    try {
+      return const {null, AppLifecycleState.resumed}.contains(WidgetsBinding.instance.lifecycleState);
+    } catch (_) {
+      return true;
+    }
+  };
+
   static Future<void> _refresh() async {
     final net = await read();
+    final hidden = !foreground() &&
+        net != null &&
+        net.type == NetType.wifi &&
+        net.ssid == null &&
+        net.handle != null &&
+        net.handle == _sp?.getInt('netTrustedHandle');
     if (_once != null && !_once!.same(net)) _once = null; // left the network: "Use once" ends
     if (_mobileOnce != null && !_mobileOnce!.same(net)) _mobileOnce = null;
     current.value = net;
     debugPrint('net: ${net?.type.name} handle=${net?.handle} vpn=${net?.vpn} mobile=${onMobileData.value}');
     final d = decide(
-        on: enabled.value, net: net, trustedNets: trusted.value, onUntrusted: untrusted.value, mobileOk: mobileData.value, vpnOk: vpnSafe.value, once: _once, mobileOnce: _mobileOnce);
+        on: enabled.value, net: net, trustedNets: trusted.value, onUntrusted: untrusted.value, mobileOk: mobileData.value, vpnOk: vpnSafe.value, once: _once, mobileOnce: _mobileOnce,
+        hiddenOnTrusted: hidden);
     if (enabled.value && net != null && net.type == NetType.wifi && trusted.value.any((t) => t.matches(net))) {
       await _sp?.setInt('netTrustedHandle', net.handle ?? -1); // for the background refresh (see [backgroundAllowed])
     }
@@ -317,4 +344,13 @@ class GuardedHttp extends HttpOverrides {
 
   @override
   HttpClient createHttpClient(SecurityContext? context) => super.createHttpClient(context)..findProxy = proxyFor;
+}
+
+/// Back on screen: check the network again. A check made in the background couldn't see the Wi-Fi name, and
+/// nothing else would re-check until the network changed.
+class _Resume with WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s == AppLifecycleState.resumed) unawaited(NetGuard.refresh());
+  }
 }

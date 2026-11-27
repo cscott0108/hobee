@@ -353,6 +353,26 @@ class _SavedGalleryScreenState extends State<SavedGalleryScreen> {
   }
 }
 
+/// A saved video tile with no working picture: makes one from the video file (the gallery reloads when it's
+/// saved) and shows the film icon meanwhile, or for good when the file can't be read.
+class _MakeThumb extends StatefulWidget {
+  final SavedItem item;
+  const _MakeThumb(this.item);
+  @override
+  State<_MakeThumb> createState() => _MakeThumbState();
+}
+
+class _MakeThumbState extends State<_MakeThumb> {
+  @override
+  void initState() {
+    super.initState();
+    SavedStore.makeThumb(widget.item);
+  }
+
+  @override
+  Widget build(BuildContext context) => const Center(child: Icon(Icons.movie_outlined));
+}
+
 class _Tile extends StatelessWidget {
   final SavedItem item;
   final bool selected;
@@ -370,9 +390,9 @@ class _Tile extends StatelessWidget {
         ColoredBox(
           color: Colors.black12,
           child: pic.isEmpty
-              ? const Icon(Icons.movie_outlined)
+              ? _MakeThumb(item)
               : Image(image: gridThumbProvider(pic), fit: BoxFit.cover, gaplessPlayback: true,
-                  errorBuilder: (_, _, _) => Icon(item.isVideo ? Icons.movie_outlined : Icons.broken_image_outlined)),
+                  errorBuilder: (_, _, _) => item.isVideo ? _MakeThumb(item) : const Icon(Icons.broken_image_outlined)),
         ),
         if (item.isVideo)
           Positioned(

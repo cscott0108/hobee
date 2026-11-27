@@ -107,6 +107,10 @@ bool isDeep(String source) => source.startsWith('deep:');
 /// True when an image load failed because the file was deleted (HTTP 404 / 410), not for being offline or rate limited.
 bool isGoneError(Object err) => err is NetworkImageLoadException && (err.statusCode == 404 || err.statusCode == 410);
 
+/// True when an image load failed with refused or deleted (401 / 403 / 404 / 410). Only proof of deletion for
+/// posts Reddit already marks removed.
+bool isRefusedError(Object err) => err is NetworkImageLoadException && const {401, 403, 404, 410}.contains(err.statusCode);
+
 bool isLive(Post p) => p.raw['_hobee_live'] == true;
 bool isRemoved(Post p) {
   final r = p.raw;

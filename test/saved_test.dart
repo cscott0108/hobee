@@ -57,6 +57,23 @@ void main() {
     expect(await SavedStore.count(), 3);
   });
 
+  test('a saved video with no picture gets one from its own file, kept and made once', () async {
+    SavedStore.debugResetThumbs();
+    final asked = <String>[];
+    SavedStore.videoFrame = (p) async {
+      asked.add(p);
+      return Uint8List.fromList([0xff, 0xd8, 1]);
+    };
+    final v = await put('mp4', 5, kind: 'video');
+    final t = await SavedStore.makeThumb(v);
+    expect(t, isNotNull);
+    expect(File(t!).readAsBytesSync(), [0xff, 0xd8, 1]);
+    expect(asked, [v.path], reason: 'read from the saved file, nothing from the web');
+    expect((await SavedStore.all()).single.thumb, t);
+    expect(await SavedStore.makeThumb(v), isNull, reason: 'once per item');
+    expect(asked.length, 1);
+  });
+
   test('files live in the private gallery folder', () async {
     final it = await put('jpg', 1);
     expect(it.path.startsWith('${tmp.path}${Platform.pathSeparator}gallery') || it.path.startsWith('${tmp.path}/gallery'), isTrue);

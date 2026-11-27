@@ -13,6 +13,8 @@ import 'find.dart';
 import 'glass.dart';
 import 'models.dart';
 import 'viewer.dart';
+import 'removed_media.dart';
+import 'nav.dart';
 
 /// Fade plus a small rise, used for search screens.
 Route<T> fadeRoute<T>(Widget w) => PageRouteBuilder<T>(
@@ -168,6 +170,12 @@ void openPost(BuildContext context, Post p) {
   if (u.startsWith('http')) launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication);
 }
 
+/// Moves [p] to the text posts by hand, with an Undo.
+void moveToText(BuildContext context, Post p) {
+  RemovedMedia.manual(p);
+  showUndo(ScaffoldMessenger.of(context), 'Moved to text posts', () => RemovedMedia.restore(p.id));
+}
+
 /// Long-press menu for any tile or row.
 Future<void> showTileMenu(BuildContext context, Post p, MediaItem? item, List<Post>? dup) => showModalBottomSheet(
       context: context,
@@ -202,6 +210,28 @@ Future<void> showTileMenu(BuildContext context, Post p, MediaItem? item, List<Po
               onTap: () {
                 Navigator.pop(ctx);
                 openAuthor(context, p.author);
+              },
+            ),
+          if (RemovedMedia.has(p.id))
+            ListTile(
+              key: const Key('menu-restore-media'),
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Restore media'),
+              subtitle: const Text('Back to the picture grid'),
+              onTap: () {
+                Navigator.pop(ctx);
+                RemovedMedia.restore(p.id);
+              },
+            )
+          else if (item != null)
+            ListTile(
+              key: const Key('menu-media-removed'),
+              leading: const Icon(Icons.hide_image_outlined),
+              title: const Text('Media removed: move to text posts'),
+              subtitle: const Text('For media that no longer loads'),
+              onTap: () {
+                Navigator.pop(ctx);
+                moveToText(context, p);
               },
             ),
           ListTile(

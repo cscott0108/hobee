@@ -23,6 +23,24 @@ class MediaRemoved implements Exception {
 }
 
 class Downloader {
+  /// Media links being downloaded right now (the viewer's download button spins for these).
+  static final active = ValueNotifier<Set<String>>(const {});
+  static void _setActive(String url, bool on) =>
+      active.value = on ? {...active.value, url} : ({...active.value}..remove(url));
+
+  /// Shows all of [urls] as downloading now (a "download all" queue), before each one's turn.
+  static void queue(Iterable<String> urls) => active.value = {...active.value, ...urls};
+
+  /// Runs [job] with [url] shown as downloading until it ends, either way.
+  static Future<T> tracking<T>(String url, Future<T> Function() job) async {
+    _setActive(url, true);
+    try {
+      return await job();
+    } finally {
+      _setActive(url, false);
+    }
+  }
+
   // Test seams.
   @visibleForTesting
   static http.Client Function() client = http.Client.new;
@@ -148,6 +166,17 @@ class Downloader {
         if (r.statusCode == 200) {
           final t = await SavedStore.newFile('jpg', suffix: '_t');
           await t.writeAsBytes(stripMetadata(r.bodyBytes));
+          thumb = t.path;
+        }
+      } catch (_) {}
+    }
+    if (video && thumb == null) {
+      // No working web thumbnail (none saved, or already dead): a frame from the saved file itself.
+      try {
+        final jpg = await SavedStore.videoFrame(dest.path);
+        if (jpg != null && jpg.isNotEmpty) {
+          final t = await SavedStore.newFile('jpg', suffix: '_t');
+          await t.writeAsBytes(jpg, flush: true);
           thumb = t.path;
         }
       } catch (_) {}
