@@ -213,6 +213,9 @@ class AppLock {
     if (enabled.value && !locked.value) lock();
   }
 
+  /// Fingerprint, face or the phone's screen lock, without touching the lock state (the start-up screen).
+  static Future<bool> askDevice(String reason) => deviceAuth(reason);
+
   static Future<bool> unlockWithDevice() async {
     final ok = await deviceAuth(reason);
     if (ok) _unlocked();

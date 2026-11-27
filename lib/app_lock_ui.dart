@@ -380,7 +380,7 @@ class _AppLockSettingsState extends State<AppLockSettings> {
               subtitle: Text(!AppLock.hasPin.value && !PanicProfile.on.value
                   ? 'Needs an app PIN first.'
                   : 'A second PIN opens a separate Hobees with its own lists, history, gallery and logins. Hobees then asks '
-                      'for a PIN when it starts; your PIN opens yours. Fingerprint isn\'t used then.'),
+                      'for a PIN when it starts; your PIN or fingerprint opens yours.'),
               value: PanicProfile.on.value,
               onChanged: AppLock.hasPin.value || PanicProfile.on.value ? _panic : null,
             ),

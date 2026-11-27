@@ -114,7 +114,8 @@ class StartLock {
 }
 
 /// "Unlock Hobees" with the PIN pad, shown before anything else loads. It looks like the app lock's PIN pad and
-/// says nothing about profiles.
+/// says nothing about profiles. Fingerprint, face or the phone's screen lock opens your own profile (asked at
+/// once, like the app lock); the panic profile opens only with its PIN.
 class StartLockScreen extends StatefulWidget {
   final void Function(int profile) onPicked;
   const StartLockScreen({super.key, required this.onPicked});
@@ -124,7 +125,37 @@ class StartLockScreen extends StatefulWidget {
 
 class _StartLockScreenState extends State<StartLockScreen> {
   String? msg;
-  bool done = false;
+  bool done = false, device = false, busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    () async {
+      final d = await AppLock.deviceSupported();
+      if (!mounted || done) return;
+      setState(() => device = d);
+      if (d) _device();
+    }();
+  }
+
+  Future<void> _device() async {
+    if (busy || done) return;
+    setState(() {
+      busy = true;
+      msg = null;
+    });
+    final ok = await AppLock.askDevice('Unlock Hobees');
+    if (!mounted || done) return;
+    setState(() {
+      busy = false;
+      if (ok) {
+        done = true;
+      } else {
+        msg = 'Not unlocked. Try again or use the PIN.';
+      }
+    });
+    if (ok) widget.onPicked(0);
+  }
 
   Future<bool> _pin(String p) async {
     if (done) return true;
@@ -162,6 +193,15 @@ class _StartLockScreenState extends State<StartLockScreen> {
               if (msg != null) ...[
                 const SizedBox(height: 12),
                 Text(msg!, key: const Key('start-msg'), style: TextStyle(color: cs.error), textAlign: TextAlign.center),
+              ],
+              if (device && !done) ...[
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  key: const Key('start-device'),
+                  onPressed: busy ? null : _device,
+                  icon: const Icon(Icons.fingerprint),
+                  label: const Text('Use fingerprint, face or screen lock'),
+                ),
               ],
             ]),
           ),

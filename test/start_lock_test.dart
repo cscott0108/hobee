@@ -27,6 +27,7 @@ void main() {
     note = File('${Directory.systemTemp.createTempSync('hobees_switch').path}/switch_to');
     StartLock.switchFile = () async => note;
     StartLock.clock = () => now;
+    AppLock.deviceSupported = () async => false;
     restarts = 0;
     StartLock.restart = () async => restarts++;
   });
@@ -99,6 +100,58 @@ void main() {
     await enter('2222');
     expect(picked, [1]);
     expect(find.byKey(const Key('start-pinpad')), findsNothing);
+  });
+
+  group('fingerprint at start-up', () {
+    Future<void> enter(WidgetTester t, String pin) async {
+      for (final d in pin.split('')) {
+        await t.tap(find.byKey(Key('pin-$d')));
+        await t.pump();
+      }
+      await t.tap(find.byKey(const Key('pin-ok')));
+      await t.pump();
+      await t.pump();
+    }
+
+    testWidgets('is asked at once and opens your own profile', (t) async {
+      setPins(real: '1111', panic: '2222');
+      final asked = <String>[];
+      AppLock.deviceSupported = () async => true;
+      AppLock.deviceAuth = (r) async {
+        asked.add(r);
+        return true;
+      };
+      final picked = <int>[];
+      await t.pumpWidget(MaterialApp(home: StartLockScreen(onPicked: picked.add)));
+      await t.pump();
+      await t.pump();
+      expect(asked, ['Unlock Hobees']);
+      expect(picked, [0]);
+    });
+
+    testWidgets('cancelled: the PIN pad still opens either profile', (t) async {
+      setPins(real: '1111', panic: '2222');
+      AppLock.deviceSupported = () async => true;
+      AppLock.deviceAuth = (r) async => false;
+      final picked = <int>[];
+      await t.pumpWidget(MaterialApp(home: StartLockScreen(onPicked: picked.add)));
+      await t.pump();
+      await t.pump();
+      expect(picked, isEmpty);
+      expect(find.byKey(const Key('start-device')), findsOneWidget, reason: 'can try again');
+      await enter(t, '2222');
+      expect(picked, [1]);
+    });
+
+    testWidgets('no screen lock on the phone: PIN only', (t) async {
+      setPins(real: '1111', panic: '2222');
+      final picked = <int>[];
+      await t.pumpWidget(MaterialApp(home: StartLockScreen(onPicked: picked.add)));
+      await t.pump();
+      expect(find.byKey(const Key('start-device')), findsNothing);
+      await enter(t, '1111');
+      expect(picked, [0]);
+    });
   });
 
   group('app lock after the start-up PIN', () {
