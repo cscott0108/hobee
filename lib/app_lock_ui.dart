@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'app_lock.dart';
 import 'follows.dart';
+import 'panic_profile.dart';
+import 'space.dart';
 
 /// Covers the whole app while [AppLock.locked]. Put above the navigator (MaterialApp.builder).
 class LockGate extends StatelessWidget {
@@ -177,9 +179,12 @@ class _PinPadState extends State<PinPad> {
   }
 }
 
-/// Set or change the app PIN: enter it twice.
+/// Set or change a PIN: enter it twice. By default it's the app PIN; [save] stores another one (the panic PIN)
+/// and returns why it can't, or null when saved.
 class PinSetupScreen extends StatefulWidget {
-  const PinSetupScreen({super.key});
+  final String title;
+  final Future<String?> Function(String pin)? save;
+  const PinSetupScreen({super.key, this.title = 'App PIN', this.save});
   @override
   State<PinSetupScreen> createState() => _PinSetupScreenState();
 }
@@ -190,7 +195,7 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('App PIN')),
+        appBar: AppBar(title: Text(widget.title)),
         body: Center(
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -214,7 +219,16 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
                     });
                     return false;
                   }
-                  await AppLock.setPin(p);
+                  final why = await (widget.save ?? _saveAppPin)(p);
+                  if (why != null) {
+                    if (mounted) {
+                      setState(() {
+                        first = null;
+                        msg = why;
+                      });
+                    }
+                    return false;
+                  }
                   if (context.mounted) Navigator.pop(context, true);
                   return true;
                 },
@@ -223,6 +237,12 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
           ),
         ),
       );
+}
+
+Future<String?> _saveAppPin(String p) async {
+  if (await PanicProfile.clashes(p)) return Space.id == 0 ? "That's your panic PIN. Pick a different one." : 'Pick a different PIN.';
+  await AppLock.setPin(p);
+  return null;
 }
 
 /// Settings → App lock section.
@@ -254,6 +274,10 @@ class _AppLockSettingsState extends State<AppLockSettings> {
   }
 
   Future<void> _removePin() async {
+    if (PanicProfile.on.value) {
+      _say('Turn the panic profile off first. Without your app PIN only the panic profile would open.');
+      return;
+    }
     if (!await AppLock.confirm('Unlock to remove the app PIN')) return;
     if (AppLock.enabled.value && !await AppLock.deviceSupported()) {
       _say("The phone has no screen lock, so the app PIN can't be removed while the app lock is on.");
@@ -262,9 +286,40 @@ class _AppLockSettingsState extends State<AppLockSettings> {
     await AppLock.removePin();
   }
 
+  Future<void> _panicPin({required bool turningOn}) async {
+    if (!await AppLock.confirm(turningOn ? 'Unlock to set up the panic profile' : 'Unlock to change the panic PIN')) return;
+    if (!mounted) return;
+    final ok = await Navigator.push<bool>(
+        context, MaterialPageRoute(builder: (_) => const PinSetupScreen(title: 'Panic PIN', save: PanicProfile.setPin)));
+    if (ok == true && turningOn) _say('Panic profile on. When Hobees starts, the panic PIN opens it; your PIN opens yours.');
+  }
+
+  Future<void> _panic(bool on) async {
+    if (on) return _panicPin(turningOn: true);
+    if (!await AppLock.confirm('Unlock to turn the panic profile off')) return;
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Turn off the panic profile?'),
+        content: const Text('Keep its lists, history, gallery and logins to use it again later, or delete all of them. '
+            'Your own profile isn\'t touched either way.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
+          TextButton(key: const Key('panic-keep'), onPressed: () => Navigator.pop(c, 'keep'), child: const Text('Keep')),
+          TextButton(key: const Key('panic-delete'), onPressed: () => Navigator.pop(c, 'delete'), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await PanicProfile.turnOff(delete: choice == 'delete');
+    _say(choice == 'delete' ? 'Panic profile off and deleted.' : 'Panic profile off. Its data is kept.');
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-        listenable: Listenable.merge([AppLock.enabled, AppLock.afterSeconds, AppLock.hideRecents, AppLock.hasPin, AppLock.lockedProfiles]),
+        listenable: Listenable.merge(
+            [AppLock.enabled, AppLock.afterSeconds, AppLock.hideRecents, AppLock.hasPin, AppLock.lockedProfiles, PanicProfile.on]),
         builder: (_, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           SwitchListTile(
             key: const Key('lock-enabled'),
@@ -316,6 +371,28 @@ class _AppLockSettingsState extends State<AppLockSettings> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LockedListsScreen())),
           ),
+          if (Space.id == 0) ...[
+            SwitchListTile(
+              key: const Key('lock-panic'),
+              contentPadding: const EdgeInsets.only(left: 72, right: 16),
+              dense: true,
+              title: const Text('Panic profile'),
+              subtitle: Text(!AppLock.hasPin.value && !PanicProfile.on.value
+                  ? 'Needs an app PIN first.'
+                  : 'A second PIN opens a separate Hobees with its own lists, history, gallery and logins. Hobees then asks '
+                      'for a PIN when it starts; your PIN opens yours. Fingerprint isn\'t used then.'),
+              value: PanicProfile.on.value,
+              onChanged: AppLock.hasPin.value || PanicProfile.on.value ? _panic : null,
+            ),
+            if (PanicProfile.on.value)
+              ListTile(
+                key: const Key('lock-panic-pin'),
+                contentPadding: const EdgeInsets.only(left: 72, right: 16),
+                dense: true,
+                title: const Text('Change panic PIN'),
+                onTap: () => _panicPin(turningOn: false),
+              ),
+          ],
         ]),
       );
 }

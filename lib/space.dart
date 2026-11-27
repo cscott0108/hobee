@@ -25,15 +25,24 @@ class Space {
   @visibleForTesting
   static void debugReset() => _id = 0;
 
-  /// The open profile's database file, from Hobees' own [base] name (`hobee.db` → `hobee_p1.db`).
-  static String dbFile(String base) => _id == 0 ? base : base.replaceFirst(RegExp(r'(\.db)?$'), '_p$_id.db');
+  /// Profile [id]'s (default: the open one's) database file, from Hobees' own [base] name (`hobee.db` →
+  /// `hobee_p1.db`).
+  static String dbFile(String base, [int? id]) {
+    final i = id ?? _id;
+    return i == 0 ? base : base.replaceFirst(RegExp(r'(\.db)?$'), '_p$i.db');
+  }
 
-  /// The open profile's Hobees gallery folder name.
-  static String get galleryDir => _id == 0 ? 'gallery' : 'gallery_p$_id';
+  /// Profile [id]'s (default: the open one's) Hobees gallery folder name.
+  static String galleryDirOf([int? id]) => (id ?? _id) == 0 ? 'gallery' : 'gallery_p${id ?? _id}';
+  static String get galleryDir => galleryDirOf();
 
-  /// The open profile's crash log file name.
-  static String get crashFile => _id == 0 ? 'crash.log' : 'crash_p$_id.log';
+  /// Profile [id]'s (default: the open one's) crash log file name.
+  static String crashFileOf([int? id]) => (id ?? _id) == 0 ? 'crash.log' : 'crash_p${id ?? _id}.log';
+  static String get crashFile => crashFileOf();
 
-  /// The open profile's encrypted-storage key for [k] (logins, the app PIN).
-  static String key(String k) => _id == 0 ? k : 'p$_id.$k';
+  /// Profile [id]'s (default: the open one's) encrypted-storage key for [k] (logins, the app PIN).
+  static String key(String k, [int? id]) => (id ?? _id) == 0 ? k : 'p${id ?? _id}.$k';
+
+  /// Every encrypted-storage key of profile [id] (not 0) starts with this.
+  static String keyPrefix(int id) => 'p$id.';
 }

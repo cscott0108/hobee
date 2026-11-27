@@ -161,6 +161,20 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
                 result.notImplemented()
             }
         }
+        // Panic profile: deleting it removes its settings, which the Flutter settings API can't reach from
+        // your own profile. Only the panic profile's prefix is accepted.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/space").setMethodCallHandler { call, result ->
+            val prefix = call.arguments as? String
+            if (call.method == "dropPrefs" && prefix != null && prefix.matches(Regex("hobeesP[1-9][0-9]*\\."))) {
+                val sp = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                val e = sp.edit()
+                for (k in sp.all.keys) if (k.startsWith(prefix)) e.remove(k)
+                e.commit()
+                result.success(null)
+            } else {
+                result.notImplemented()
+            }
+        }
         // Reddit session login (Phase 7): read the cookies the in-app login page set (webview_flutter can't).
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/web").setMethodCallHandler { call, result ->
             when (call.method) {

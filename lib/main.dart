@@ -12,6 +12,7 @@ import 'player.dart';
 import 'screen_awake.dart';
 import 'app_lock.dart';
 import 'app_lock_ui.dart';
+import 'panic_profile.dart';
 import 'space.dart';
 import 'start_lock.dart';
 import 'db.dart';
@@ -93,6 +94,7 @@ Future<void> _main() async {
   AppLock.viewingProfile = () => mainTab.value == 1 ? followingProfile(deepSource.value ?? '') : null;
   ScreenAwake.onIdle = AppLock.idle;
   await _safe('lock', AppLock.load);
+  await _safe('panic', PanicProfile.load);
   await _safe('hide', HideGestures.load);
   await _safe('auth', Auth.i.init);
   await _safe('session', RedditSession.load);
