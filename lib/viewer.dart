@@ -256,6 +256,28 @@ class _ViewerState extends State<Viewer> {
                 IconButton(
                     tooltip: 'Open in browser', icon: const Icon(Icons.open_in_new),
                     onPressed: () => launchUrl(Uri.parse('https://www.reddit.com${e.post.permalink}'), mode: LaunchMode.externalApplication)),
+                if (!widget.local)
+                  PopupMenuButton<String>(
+                    key: const Key('viewer-more'),
+                    tooltip: 'More',
+                    onSelected: (_) {
+                      final m = ScaffoldMessenger.of(context);
+                      final p = e.post;
+                      RemovedMedia.manual(p);
+                      Navigator.pop(context); // the post leaves the grid it was opened from
+                      m.showSnackBar(SnackBar(
+                        content: const Text('Moved to text posts'),
+                        action: SnackBarAction(label: 'Undo', onPressed: () => RemovedMedia.restore(p.id)),
+                      ));
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'removed',
+                        key: Key('viewer-media-removed'),
+                        child: ListTile(leading: Icon(Icons.hide_image_outlined), title: Text('Media removed: move to text posts'), contentPadding: EdgeInsets.zero),
+                      ),
+                    ],
+                  ),
               ],
             )
           : null,

@@ -44,4 +44,20 @@ void main() {
     RemovedMedia.dead(post('rem2', self: '[removed]'), 403);
     expect(RemovedMedia.has('rem2'), isTrue);
   });
+
+  test('moved by hand works on any post, is saved, and restore puts it back', () async {
+    final live = post('live9');
+    RemovedMedia.manual(live);
+    expect(RemovedMedia.shown(live).media, isEmpty);
+    await Future.delayed(const Duration(milliseconds: 100));
+    RemovedMedia.debugReset();
+    await RemovedMedia.load();
+    expect(RemovedMedia.has('live9'), isTrue);
+    RemovedMedia.restore('live9');
+    expect(RemovedMedia.shown(live).media, isNotEmpty);
+    await Future.delayed(const Duration(milliseconds: 100));
+    RemovedMedia.debugReset();
+    await RemovedMedia.load();
+    expect(RemovedMedia.has('live9'), isFalse);
+  });
 }

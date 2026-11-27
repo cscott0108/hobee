@@ -26,9 +26,27 @@ class RemovedMedia {
 
   /// [p]'s media failed with a refused / deleted answer everywhere. Moves it to text if Reddit marks it removed.
   static void refused(Post p) {
-    if (!isRemoved(p) || !_ids.add(p.id)) return;
-    unawaited(Db.db.then((d) => d.insert('media_gone', {'id': p.id, 'at': DateTime.now().millisecondsSinceEpoch},
+    if (isRemoved(p)) _add(p.id);
+  }
+
+  /// You said [p]'s media is gone (long press or the viewer's menu): moves to text whatever Reddit says.
+  static void manual(Post p) => _add(p.id);
+
+  /// Back to the grid (undo, or 'Restore media' on a text post).
+  static void restore(String id) {
+    if (!_ids.remove(id)) return;
+    unawaited(Db.db.then((d) => d.delete('media_gone', where: 'id=?', whereArgs: [id])).catchError((_) => 0));
+    _changed();
+  }
+
+  static void _add(String id) {
+    if (!_ids.add(id)) return;
+    unawaited(Db.db.then((d) => d.insert('media_gone', {'id': id, 'at': DateTime.now().millisecondsSinceEpoch},
         conflictAlgorithm: ConflictAlgorithm.replace)).catchError((_) => 0));
+    _changed();
+  }
+
+  static void _changed() {
     _bump ??= Timer(const Duration(milliseconds: 400), () {
       _bump = null;
       version.value++;
