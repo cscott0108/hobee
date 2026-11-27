@@ -10,6 +10,7 @@ import 'crash_log.dart';
 import 'player.dart';
 import 'screen_awake.dart';
 import 'app_lock_ui.dart';
+import 'hide_gestures.dart';
 import 'clean.dart';
 import 'clean_image.dart';
 import 'saved.dart';
@@ -297,6 +298,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const AppLockSettings(),
+        ValueListenableBuilder(
+          valueListenable: HideGestures.sensors,
+          builder: (_, sensors, _) => Column(mainAxisSize: MainAxisSize.min, children: [
+            if (sensors['accelerometer'] ?? true)
+              ValueListenableBuilder(
+                valueListenable: HideGestures.flip,
+                builder: (_, on, _) => SwitchListTile(
+                  key: const Key('hide-flip'),
+                  secondary: const Icon(Icons.screen_rotation_alt_outlined),
+                  title: const Text('Flip face down to hide'),
+                  subtitle: const Text('Laying the phone face down sends Hobees to the background, locked if the app lock is on.'),
+                  value: on,
+                  onChanged: (v) => HideGestures.flip.value = v,
+                ),
+              ),
+            if (sensors['light'] ?? true)
+              ValueListenableBuilder(
+                valueListenable: HideGestures.dark,
+                builder: (_, on, _) => SwitchListTile(
+                  key: const Key('hide-dark'),
+                  secondary: const Icon(Icons.dark_mode_outlined),
+                  title: const Text('Hide when covered and dark'),
+                  subtitle: Text((sensors['proximity'] ?? true)
+                      ? 'In a pocket or under your hand for 2 seconds (dark and something close to the screen), not just a dim room.'
+                      : 'When the light sensor reads almost no light for 2 seconds.'),
+                  value: on,
+                  onChanged: (v) => HideGestures.dark.value = v,
+                ),
+              ),
+          ]),
+        ),
         const NetworkSettingsTile(),
         ValueListenableBuilder(
           valueListenable: ScreenAwake.mode,
