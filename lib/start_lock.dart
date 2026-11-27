@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:path_provider/path_provider.dart';
 import 'app_lock.dart';
 import 'app_lock_ui.dart' show PinPad;
 import 'space.dart';
@@ -14,17 +16,16 @@ import 'space.dart';
 class StartLock {
   static const realKey = 'appLockPin';
   static const panicKey = 'p1.appLockPin';
-  /// Set just before a switch restarts the app: `<profile>:<ms since epoch>`. Only Hobees can write it (its own
-  /// encrypted storage), so the restart may open that profile without asking again.
-  static const switchKey = 'switchTo';
+  /// Written just before a switch restarts the app: `<profile>:<ms since epoch>`. It's in Hobees' private
+  /// storage, which only Hobees can write, so the restart may open that profile without asking again. A plain
+  /// file flushed to disk: encrypted storage saves in the background, and the restart could cut that short.
   static const switchFresh = Duration(seconds: 30);
 
   /// Test seams.
   @visibleForTesting
   static Future<String?> Function(String key) read = (k) => const FlutterSecureStorage().read(key: k);
   @visibleForTesting
-  static Future<void> Function(String key, String? value) write = (k, v) async =>
-      v == null ? const FlutterSecureStorage().delete(key: k) : const FlutterSecureStorage().write(key: k, value: v);
+  static Future<File> Function() switchFile = () async => File('${(await getApplicationSupportDirectory()).path}/switch_to');
   @visibleForTesting
   static DateTime Function() clock = DateTime.now;
   /// Restarts the app process (Android side).
@@ -74,15 +75,16 @@ class StartLock {
 
   /// Restarts Hobees into profile [id] (the PIN for it was just typed).
   static Future<void> switchTo(int id) async {
-    await write(switchKey, '$id:${clock().millisecondsSinceEpoch}');
+    (await switchFile()).writeAsStringSync('$id:${clock().millisecondsSinceEpoch}', flush: true);
     await restart();
   }
 
   /// At start-up: the profile a switch just asked for, if any (used once; older than [switchFresh] is ignored).
   static Future<int?> takeSwitch() async {
-    final v = await read(switchKey);
-    if (v == null) return null;
-    await write(switchKey, null);
+    final f = await switchFile();
+    if (!f.existsSync()) return null;
+    final v = f.readAsStringSync();
+    f.deleteSync();
     final parts = v.split(':');
     final id = parts.length == 2 ? int.tryParse(parts[0]) : null;
     final at = parts.length == 2 ? int.tryParse(parts[1]) : null;

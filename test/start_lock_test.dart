@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/app_lock.dart';
@@ -10,6 +11,7 @@ void main() {
   late DateTime now;
   late List<String> reads;
   late int restarts;
+  late File note;
 
   setUp(() {
     SharedPreferences.setMockInitialValues({}); // lets a test pick a profile
@@ -22,12 +24,16 @@ void main() {
       reads.add(k);
       return store[k];
     };
-    StartLock.write = (k, v) async => v == null ? store.remove(k) : store[k] = v;
+    note = File('${Directory.systemTemp.createTempSync('hobees_switch').path}/switch_to');
+    StartLock.switchFile = () async => note;
     StartLock.clock = () => now;
     restarts = 0;
     StartLock.restart = () async => restarts++;
   });
-  tearDown(Space.debugReset);
+  tearDown(() {
+    Space.debugReset();
+    note.parent.deleteSync(recursive: true);
+  });
 
   void setPins({String? real, String? panic}) {
     if (real != null) store[StartLock.realKey] = hashPin(real, iterations: 10);
@@ -138,9 +144,9 @@ void main() {
       await StartLock.switchTo(0);
       now = now.add(const Duration(seconds: 31));
       expect(await StartLock.takeSwitch(), isNull);
-      expect(store.containsKey(StartLock.switchKey), isFalse);
+      expect(note.existsSync(), isFalse);
       for (final v in ['7:${now.millisecondsSinceEpoch}', 'x', '1:${now.add(const Duration(minutes: 1)).millisecondsSinceEpoch}']) {
-        store[StartLock.switchKey] = v;
+        note.writeAsStringSync(v);
         expect(await StartLock.takeSwitch(), isNull, reason: v);
       }
     });
