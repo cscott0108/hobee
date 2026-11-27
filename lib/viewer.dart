@@ -137,12 +137,49 @@ class _ViewerState extends State<Viewer> {
         await Downloader.save(it, e.post, profile: followingProfile(effectiveSource()));
         ok++;
         if (ok == 1) Interest.downloaded(e.post);
+      } on MediaRemoved {
+        // The host only serves a "removed" placeholder: never saved as if real. Offer the grid's thumbnail.
+        if (!mounted || !it.thumb.startsWith('http') || !await _offerThumb(it)) {
+          m.showSnackBar(const SnackBar(content: Text('Not saved: it was removed from its host')));
+          continue;
+        }
+        try {
+          await Downloader.saveThumb(it, e.post, profile: followingProfile(effectiveSource()));
+          ok++;
+        } catch (err) {
+          m.showSnackBar(SnackBar(content: Text('Failed: $err')));
+        }
       } catch (err) {
         m.showSnackBar(SnackBar(content: Text('Failed: $err')));
       }
     }
     m.showSnackBar(SnackBar(content: Text('Saved $ok/${items.length} to ${saveTo.value == SaveTo.phone ? 'the phone gallery' : 'Hobees gallery'}')));
   }
+
+  /// Removed at its host: save the thumbnail instead? (true = save it)
+  Future<bool> _offerThumb(MediaItem it) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('Removed from its host'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('The full picture is gone; the host only sends a "removed" placeholder. '
+                'Save the thumbnail instead? It\'s smaller and lower quality.'),
+            const SizedBox(height: 12),
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 180),
+                child: Image(image: gridThumbProvider(it.thumb), errorBuilder: (_, _, _) => const SizedBox()),
+              ),
+            ),
+          ]),
+          actions: [
+            TextButton(key: const Key('thumb-cancel'), onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+            FilledButton(key: const Key('thumb-save'), onPressed: () => Navigator.pop(c, true), child: const Text('Save thumbnail')),
+          ],
+        ),
+      ) ??
+      false;
 
   /// [goneId]: the post to mark gone if every URL answers 404/410, so 'Hide gone images' drops its tile.
   Widget _photo(String url, MediaItem it, {String? goneId}) => PhotoFallback(
