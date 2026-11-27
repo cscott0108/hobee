@@ -68,8 +68,7 @@ void main() {
     expect(videoErrorText(const [('media.redgifs.com', 403), ('api.redgifs.com', 410)]).$1, 'Removed from its host');
     final mixed = videoErrorText(const [('v.redd.it', null), ('v.redd.it', 403)]);
     expect(mixed.$1, "Can't play this one", reason: 'no answer may just be the network');
-    expect(mixed.$2, 'v.redd.it: no answer
-v.redd.it refused it (403)');
+    expect(mixed.$2, 'v.redd.it: no answer\nv.redd.it refused it (403)');
     expect(videoErrorText(const [('i.imgur.com', 206)]).$2, "i.imgur.com answered, but the video wouldn't open");
     expect(videoErrorText(const []).$2, 'No playable copy found');
     expect(hostOf('https://v.redd.it/abc/HLSPlaylist.m3u8'), 'v.redd.it');
