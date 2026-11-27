@@ -170,6 +170,17 @@ class Downloader {
         }
       } catch (_) {}
     }
+    if (video && thumb == null) {
+      // No working web thumbnail (none saved, or already dead): a frame from the saved file itself.
+      try {
+        final jpg = await SavedStore.videoFrame(dest.path);
+        if (jpg != null && jpg.isNotEmpty) {
+          final t = await SavedStore.newFile('jpg', suffix: '_t');
+          await t.writeAsBytes(jpg, flush: true);
+          thumb = t.path;
+        }
+      } catch (_) {}
+    }
     await SavedStore.add(SavedItem(
       path: dest.path, kind: video ? 'video' : 'image', thumb: thumb, width: item.width, height: item.height, duration: item.duration,
       postId: post.id, title: post.title, subreddit: post.subreddit, author: post.author, permalink: post.permalink,
