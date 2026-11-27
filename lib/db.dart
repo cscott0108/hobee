@@ -5,6 +5,20 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show compute, visibleForTesting;
 import 'space.dart';
 
+/// (rowid, post) for each readable row; unreadable JSON is skipped.
+List<(int, Post)> _decodeRows(List<(int, String)> rows) => [
+      for (final (r, j) in rows)
+        if (_tryPost(j) case final p?) (r, p)
+    ];
+
+Post? _tryPost(String j) {
+  try {
+    return Post.fromJson(jsonDecode(j));
+  } catch (_) {
+    return null;
+  }
+}
+
 List<Post> _decodeAll(List<String> js) => js.map((j) => Post.fromJson(jsonDecode(j))).whereType<Post>().toList();
 
 /// (rowid, user, subreddit) in lower case for each saved post's JSON; '' when missing or unreadable.
@@ -351,6 +365,29 @@ class Db {
   }
 
   /// Every cached post once (by id), newest first. Decoded off the UI thread.
+  /// Every cached post once (by id), a chunk of [chunkRows] rows at a time, with its rowid (for [postAt]).
+  /// Only one chunk is held at a time, so a scan over the whole cache stays small.
+  static Future<void> eachPostChunk(Future<void> Function(List<(int, Post)> chunk) f) async {
+    final d = await db;
+    final seen = <String>{};
+    var last = 0;
+    while (true) {
+      final rows = await d.rawQuery('SELECT rowid AS r, json FROM posts WHERE rowid > ? ORDER BY rowid LIMIT ?', [last, chunkRows]);
+      if (rows.isEmpty) break;
+      last = rows.last['r'] as int;
+      final raw = [for (final r in rows) (r['r'] as int, r['json'] as String)];
+      final posts = raw.length > 150 ? await compute(_decodeRows, raw) : _decodeRows(raw);
+      await f([for (final x in posts) if (seen.add(x.$2.id)) x]);
+      if (rows.length < chunkRows) break;
+    }
+  }
+
+  /// The post saved in row [rowid], or null when it's gone.
+  static Future<Post?> postAt(int rowid) async {
+    final rows = await (await db).rawQuery('SELECT json FROM posts WHERE rowid=?', [rowid]);
+    return rows.isEmpty ? null : _tryPost(rows.first['json'] as String);
+  }
+
   static Future<List<Post>> loadEverything() => _loadChunked('1=1', const [], onePerId: true);
 
   static Future<int> count(String source) async {
