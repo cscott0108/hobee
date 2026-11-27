@@ -70,7 +70,7 @@ class PanicProfile {
     await secure.delete(key: StartLock.panicKey);
     on.value = false;
     try {
-      await BackgroundRefresh.cancel(BackgroundRefresh.taskFor(id)); // its background refresh stops too
+      await BackgroundRefresh.stop(id); // its background refresh stops too
     } catch (_) {}
     if (delete) await wipe();
   }

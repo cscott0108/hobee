@@ -71,6 +71,9 @@ class BackgroundRefresh {
     }
   }
 
+  /// Stops profile [profile]'s background refresh (the panic profile being turned off).
+  static Future<void> stop(int profile) => cancel(taskFor(profile));
+
   /// In the background task, before anything is read: opens the profile the task belongs to. False when it's
   /// the panic profile and that's off (its task is cancelled then).
   static Future<bool> openProfile(Map<String, dynamic>? input) async {
