@@ -55,7 +55,7 @@ class PanicProfile {
   /// Saves [pin] as the panic PIN (turns it on, or changes it). Returns why not, or null when done.
   static Future<String?> setPin(String pin) async {
     if (Space.id != 0) return 'Not available here.';
-    final mine = await AppLock.pinStore.read();
+    final mine = await secure.read(key: StartLock.realKey);
     if (mine == null) return 'Set an app PIN first.';
     if (verifyPin(pin, mine)) return "That's your app PIN. Pick a different one.";
     await secure.write(key: StartLock.panicKey, value: hashPin(pin));
