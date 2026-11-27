@@ -21,6 +21,7 @@ import 'source_bar.dart';
 import 'nav.dart';
 import 'sub_search.dart';
 import 'saved.dart';
+import 'removed_media.dart';
 
 enum MediaFilter { all, images, videos, galleries, text, links, documents }
 
@@ -231,7 +232,7 @@ class Rel {
   }
 }
 
-final viewFilters = Listenable.merge([relevanceSort, followingRelevance, Rel.ready, mediaFilter, statusFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone, hideAdult, srSort]);
+final viewFilters = Listenable.merge([relevanceSort, followingRelevance, Rel.ready, mediaFilter, statusFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone, hideAdult, srSort, RemovedMedia.version]);
 
 // ---- filters remembered per screen (home feeds vs Deep Search) ----
 String _scope = 'main';
@@ -435,7 +436,8 @@ List<Post> filterAndCount(List<Post> all) {
   final mf = mediaFilter.value;
   final c = <Object, int>{};
   final out = <Post>[];
-  for (final p in all) {
+  for (final p0 in all) {
+    final p = RemovedMedia.shown(p0); // a removed post with dead media counts as a text post
     if (!subOk(p)) continue;
     if (sr && hv && Viewed.has(p.author)) continue;
     if (hits != null && !hits.containsKey(p.id)) continue;

@@ -8,6 +8,7 @@ import 'dedupe.dart';
 import 'embeds.dart';
 import 'models.dart';
 import 'net_guard.dart';
+import 'player.dart' show probeStatus;
 import 'space.dart';
 
 /// A frame from the video itself, for grid tiles of videos with no working picture (the archive saved the post
@@ -31,6 +32,36 @@ class VideoPoster {
   static final saved = ValueNotifier<int>(0);
 
   static void need(MediaItem m) => _needed.add(m.url);
+
+  static Future<int?> Function(String url) probe = probeStatus;
+  static final _dead = <String, Future<int?>>{};
+
+  /// For a video with no picture and no frame: asks each of its links once. Returns 410 when they all answered
+  /// deleted (404/410, or RedGIFs says it's gone), 403 when all refused, null when any works, didn't answer or
+  /// there's nothing to ask. Once per video per session.
+  static Future<int?> deadCode(MediaItem m) {
+    if (NetGuard.paused) return Future.value();
+    return _dead[m.url] ??= _check(m);
+  }
+
+  static Future<int?> _check(MediaItem m) async {
+    final codes = <int?>[];
+    if (Embeds.redgifsId(m.url) != null || Embeds.streamableId(m.url) != null) {
+      try {
+        codes.add(await probe(await Embeds.playable(m.url)));
+      } catch (e) {
+        codes.add('$e'.contains('Gone') ? 410 : null);
+      }
+    } else {
+      for (final u in {m.url, ?m.hls}) {
+        if (u.startsWith('http')) codes.add(await probe(u));
+      }
+    }
+    final p = m.preview;
+    if (p != null && p.startsWith('http')) codes.add(await probe(p));
+    if (codes.isEmpty || codes.any((c) => !const {401, 403, 404, 410}.contains(c))) return null;
+    return codes.any((c) => c == 404 || c == 410) ? 410 : 403;
+  }
 
   /// Third way to a tile frame: [m] just started playing from [url] in the viewer. If its tile has no picture
   /// and no frame yet, read one straight from that link (streamed, not downloaded whole). Stream playlists
@@ -141,6 +172,7 @@ class VideoPoster {
     _done.clear();
     _needed.clear();
     _fromViewer.clear();
+    _dead.clear();
     _waiting.clear();
     _running = 0;
   }
@@ -151,7 +183,9 @@ class VideoPosterImage extends StatefulWidget {
   final MediaItem item;
   final int cacheWidth;
   final BoxFit fit;
-  const VideoPosterImage({super.key, required this.item, this.cacheWidth = 360, this.fit = BoxFit.cover});
+  /// No frame could be made and every link of the video answered refused (403) or deleted (410).
+  final void Function(int code)? onDead;
+  const VideoPosterImage({super.key, required this.item, this.cacheWidth = 360, this.fit = BoxFit.cover, this.onDead});
   @override
   State<VideoPosterImage> createState() => _VideoPosterImageState();
 }
@@ -192,7 +226,16 @@ class _VideoPosterImageState extends State<VideoPosterImage> {
   Future<void> _load() async {
     final url = widget.item.url;
     final r = await VideoPoster.of(widget.item, wanted: () => !_gone);
-    if (mounted && widget.item.url == url && r != null) setState(() => f = r);
+    if (!mounted || widget.item.url != url) return;
+    if (r != null) {
+      setState(() => f = r);
+      return;
+    }
+    // No frame either: check whether the video itself is gone, so the post can move to text or be hidden.
+    final dead = widget.onDead;
+    if (dead == null) return;
+    final code = await VideoPoster.deadCode(widget.item);
+    if (code != null && mounted && widget.item.url == url && f == null) dead(code);
   }
 
   @override

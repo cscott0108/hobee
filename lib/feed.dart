@@ -17,6 +17,7 @@ import 'models.dart';
 import 'source_bar.dart';
 import 'viewer.dart';
 import 'sub_search.dart';
+import 'removed_media.dart';
 
 class FeedScreen extends StatefulWidget {
   final String? title;
@@ -264,6 +265,14 @@ class _FeedScreenState extends State<FeedScreen> {
                       const SizedBox(height: 4),
                       HighlightText(p.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
                       WhyMatched(p.id),
+                      if (RemovedMedia.has(p.id)) ...[
+                        const SizedBox(height: 6),
+                        Row(key: const Key('media-removed'), children: [
+                          Icon(Icons.hide_image_outlined, size: 16, color: cs.onSurfaceVariant),
+                          const SizedBox(width: 6),
+                          Text('Media removed from its host', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                        ]),
+                      ],
                       if (m == null && self.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         HighlightText(self, maxLines: 8, style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
@@ -304,7 +313,7 @@ class _FeedScreenState extends State<FeedScreen> {
     final read = readIds.contains(p.id);
     if (p.media.isEmpty) {
       return ListTile(
-        leading: const Icon(Icons.notes),
+        leading: Icon(RemovedMedia.has(p.id) ? Icons.hide_image_outlined : Icons.notes),
         title: HighlightText(p.title, maxLines: 2, style: TextStyle(fontSize: 14, color: read ? cs.onSurfaceVariant : null)),
         onLongPress: () => showTileMenu(context, p, null, null),
         subtitle: Text('r/${p.subreddit} • ${p.date.toLocal().toString().substring(0, 10)}', style: TextStyle(color: cs.primary, fontSize: 12)),

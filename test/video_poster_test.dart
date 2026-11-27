@@ -71,6 +71,22 @@ void main() {
     expect(read.length, 1, reason: 'once per video');
   });
 
+  test('a video with no frame is checked once: dead only when every link refuses or is deleted', () async {
+    final codes = {'https://v.redd.it/d/DASH_720.mp4': 403, 'https://v.redd.it/d/HLSPlaylist.m3u8': 404};
+    var asked = 0;
+    VideoPoster.probe = (u) async {
+      asked++;
+      return codes[u];
+    };
+    final m = MediaItem(MediaType.video, 'https://v.redd.it/d/DASH_720.mp4', '', hls: 'https://v.redd.it/d/HLSPlaylist.m3u8');
+    expect(await VideoPoster.deadCode(m), 410);
+    expect(await VideoPoster.deadCode(m), 410);
+    expect(asked, 2, reason: 'once per video');
+    codes['https://v.redd.it/e/DASH_720.mp4'] = 206;
+    final ok = MediaItem(MediaType.video, 'https://v.redd.it/e/DASH_720.mp4', '', hls: 'https://v.redd.it/e/HLSPlaylist.m3u8');
+    expect(await VideoPoster.deadCode(ok), isNull, reason: 'a link that works (or gives no answer) means not dead');
+  });
+
   test("a video tile doesn't try its backup video file as a picture", () {
     final v = MediaItem(MediaType.video, 'https://media.redgifs.com/x', 'https://external-preview.redd.it/x.jpg',
         preview: 'https://v.redd.it/zz/DASH_480.mp4');

@@ -26,6 +26,7 @@ import 'sub_users.dart';
 import 'viewed.dart';
 import 'find_ui.dart';
 import 'models.dart';
+import 'removed_media.dart';
 import 'source_bar.dart';
 import 'viewer.dart';
 
@@ -841,6 +842,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
                               video: e.item.type == MediaType.image ? null : e.item,
                               // A video whose thumbnail is gone may still play: only pictures count as gone here.
                               onGone: e.index == 0 && e.item.type == MediaType.image ? () => MediaCheck.markGone(e.post.id) : null,
+                              // A removed post whose media is refused or deleted moves to the text posts.
+                              // A video first tries a frame and a check of the video itself (onDead).
+                              onRefused: e.index == 0 && e.item.type == MediaType.image ? () => RemovedMedia.refused(e.post) : null,
+                              onDead: e.index == 0 ? (code) => RemovedMedia.dead(e.post, code) : null,
                             ),
                           // Bottom left: where the post came from (mixed feeds only), then the author or archive status.
                           // In a framed block the header names the user and subreddit once for all its pictures.

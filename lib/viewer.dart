@@ -21,6 +21,7 @@ import 'saved.dart';
 import 'screen_awake.dart';
 import 'source_bar.dart';
 import 'sub_users.dart';
+import 'removed_media.dart';
 
 const viewerUserAgent = 'android:io.github.cscott0108.hobees:v$appVersion (gallery app)';
 
@@ -266,7 +267,10 @@ class _ViewerState extends State<Viewer> {
             itemBuilder: (_, i) {
               final it = widget.entries[i].item;
               final gid = widget.local || widget.entries[i].index != 0 ? null : widget.entries[i].post.id;
-              if (it.type == MediaType.video) return VideoPage(item: it, active: i == cur);
+              if (it.type == MediaType.video) {
+                final post = widget.entries[i].post;
+                return VideoPage(item: it, active: i == cur, onRemoved: widget.local ? null : (code) => RemovedMedia.dead(post, code));
+              }
               if (isDeep(currentSource.value) && !isLocalPath(it.url)) {
                 return FutureBuilder<String?>(
                   future: MediaCheck.resolve(widget.entries[i].post, it),

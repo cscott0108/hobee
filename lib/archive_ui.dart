@@ -3,6 +3,7 @@ import 'clean_image.dart' show withRedditOriginals;
 import 'package:flutter/material.dart';
 import 'archive.dart';
 import 'models.dart';
+import 'removed_media.dart';
 import 'video_poster.dart';
 
 /// Image that, for archive posts, lazily checks availability (original -> preview -> thumbnail -> Wayback) and shows
@@ -26,7 +27,9 @@ class _ArchiveImageState extends State<ArchiveImage> {
   /// Videos fall back to a frame from the video, never to the archive lookups or the "removed" state: a video
   /// whose thumbnail is gone may still play.
   bool get _video => widget.item.type != MediaType.image;
-  Widget get _poster => VideoPosterImage(item: widget.item, cacheWidth: widget.cacheWidth ?? 360, fit: widget.fit);
+  Widget get _poster => VideoPosterImage(item: widget.item, cacheWidth: widget.cacheWidth ?? 360, fit: widget.fit,
+      onDead: (code) => RemovedMedia.dead(widget.post, code));
+  void _refusedAll() => RemovedMedia.refused(widget.post);
   String get _raw => _thumbMode ? widget.item.thumb : widget.item.full;
 
   @override
@@ -76,7 +79,12 @@ class _ArchiveImageState extends State<ArchiveImage> {
       builder: (ctx, s) {
         if (s.hasError) return GestureDetector(onTap: _recheck, child: _box(context, const Icon(Icons.refresh)));
         if (s.connectionState != ConnectionState.done) return _box(context, null);
-        if (s.data == null) WidgetsBinding.instance.addPostFrameCallback((_) => MediaCheck.markGone(widget.post.id));
+        if (s.data == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            MediaCheck.markGone(widget.post.id);
+            RemovedMedia.refused(widget.post); // a removed post moves to text
+          });
+        }
         return s.data == null ? GestureDetector(onTap: _recheck, child: const MediaGone()) : _img(s.data!);
       },
     );
@@ -89,7 +97,7 @@ class _ArchiveImageState extends State<ArchiveImage> {
     return u.isEmpty
         ? _box(context, const Icon(Icons.movie))
         : FallbackImage(urls: [u, _raw, widget.item.thumb, ?widget.item.preview], fit: widget.fit, cacheWidth: widget.cacheWidth,
-            onAllGone: () => MediaCheck.markGone(widget.post.id));
+            onAllGone: () => MediaCheck.markGone(widget.post.id), onRefused: _refusedAll);
   }
 
   Widget _box(BuildContext c, Widget? child) => Container(color: Theme.of(c).colorScheme.surfaceContainerHighest, alignment: Alignment.center, child: child);
@@ -106,7 +114,9 @@ class FallbackImage extends StatefulWidget {
   final VoidCallback? onExhausted;
   /// If set, shown once every URL has failed, instead of the retry / gone state (a video tile's own frame).
   final Widget? exhausted;
-  const FallbackImage({super.key, required this.urls, this.fit = BoxFit.cover, this.cacheWidth, this.onAllGone, this.onExhausted, this.exhausted});
+  /// Called once when every URL answered refused or deleted (401/403/404/410).
+  final VoidCallback? onRefused;
+  const FallbackImage({super.key, required this.urls, this.fit = BoxFit.cover, this.cacheWidth, this.onAllGone, this.onExhausted, this.exhausted, this.onRefused});
   @override
   State<FallbackImage> createState() => _FallbackImageState();
 }
@@ -118,12 +128,13 @@ class _FallbackImageState extends State<FallbackImage> {
   int _i = 0;
   int _retry = 0;
   bool _soft = false; // saw an error that wasn't a clear 404/410
+  bool _refused = true; // every error so far was 401/403/404/410
   List<String> get _urls => withRedditOriginals(widget.urls);
 
   @override
   void didUpdateWidget(FallbackImage old) {
     super.didUpdateWidget(old);
-    if (old.urls.join() != widget.urls.join()) { _i = 0; _soft = false; }
+    if (old.urls.join() != widget.urls.join()) { _i = 0; _soft = false; _refused = true; }
   }
 
   void _again() {
@@ -140,7 +151,9 @@ class _FallbackImageState extends State<FallbackImage> {
     if (!_handled.add('$url#$_retry') || _i >= _urls.length || _urls[_i] != url) return;
     final code = err is NetworkImageLoadException ? err.statusCode : 0;
     if (code != 404 && code != 410 && code != 403) _soft = true;
+    if (!const {401, 403, 404, 410}.contains(code)) _refused = false;
     _i++;
+    if (_i >= _urls.length && _refused) widget.onRefused?.call();
     if (_i >= _urls.length && widget.onExhausted != null) {
       widget.onExhausted!();
       return;

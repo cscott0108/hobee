@@ -154,7 +154,9 @@ bool _refused(int? code) => code == 401 || code == 403 || code == 404 || code ==
 class VideoPage extends StatefulWidget {
   final MediaItem item;
   final bool active;
-  const VideoPage({super.key, required this.item, required this.active});
+  /// Every copy answered refused or deleted (the code: 403, or 410 for deleted).
+  final void Function(int code)? onRemoved;
+  const VideoPage({super.key, required this.item, required this.active, this.onRemoved});
   @override
   State<VideoPage> createState() => _VideoPageState();
 }
@@ -257,6 +259,9 @@ class _VideoPageState extends State<VideoPage> {
     }
     if (!mounted) return;
     final (title, detail) = videoErrorText(fails);
+    if (fails.isNotEmpty && fails.every((f) => _refused(f.$2))) {
+      widget.onRemoved?.call(fails.any((f) => f.$2 == 404 || f.$2 == 410) ? 410 : 403);
+    }
     setState(() {
       errTitle = title;
       err = detail;

@@ -54,7 +54,7 @@ class Db {
 
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(p.join(await getDatabasesPath(), Space.dbFile(fileName)), version: 12, onUpgrade: (db, o, n) async {
+    _db = await openDatabase(p.join(await getDatabasesPath(), Space.dbFile(fileName)), version: 13, onUpgrade: (db, o, n) async {
       if (o < 2) await _v2(db);
       if (o < 3) await _v3(db);
       if (o < 4) await _v4(db);
@@ -66,6 +66,7 @@ class Db {
       if (o < 10) await _v10(db);
       if (o < 11) await _v11(db);
       if (o < 12) await _v12(db);
+      if (o < 13) await _v13(db);
     }, onCreate: (db, v) async {
       await db.execute('CREATE TABLE posts(source TEXT, id TEXT, created INTEGER, json TEXT, PRIMARY KEY(source,id))');
       await db.execute('CREATE INDEX idx_src_created ON posts(source, created)');
@@ -80,8 +81,14 @@ class Db {
       await _v10(db);
       await _v11(db);
       await _v12(db);
+      await _v13(db);
     });
     return _db!;
+  }
+
+  /// v13: removed posts whose media the host refused or deleted (see RemovedMedia): they show as text posts.
+  static Future<void> _v13(Database db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS media_gone(id TEXT PRIMARY KEY, at INTEGER)');
   }
 
   /// v12: the archive pace log (see PaceLog): one row per archive request or marker, newest 5,000 kept.
