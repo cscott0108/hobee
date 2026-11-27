@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'archive.dart';
+import 'background.dart' show BackgroundRefresh;
 import 'db.dart';
 import 'follows.dart';
 import 'models.dart';
@@ -70,9 +71,17 @@ class Following {
       base = age < const Duration(days: 1) ? freshFor : age < const Duration(days: 7) ? const Duration(hours: 2) : maxRecheck;
     }
     final streak = freshFor * (1 << s.quiet.clamp(0, 5));
-    final d = streak > base ? streak : base;
-    return d > maxRecheck ? maxRecheck : d;
+    var d = streak > base ? streak : base;
+    if (d > maxRecheck) d = maxRecheck;
+    // Never sooner than the background refresh interval, so opening (or killing and reopening) the app checks a
+    // channel no more often than the background task would.
+    final floor = minRest();
+    return d < floor ? floor : d;
   }
+
+  /// Shortest rest for any channel: Settings -> Background refresh -> How often (1 hour when it's off). Test seam.
+  static Duration Function() minRest =
+      () => Duration(minutes: BackgroundRefresh.enabled.value ? BackgroundRefresh.everyMinutes.value : 60);
 
   /// A short, plain reason for a failed check (shown on the Following lists screen).
   static String failReason(Object e) {

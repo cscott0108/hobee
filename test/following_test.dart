@@ -65,6 +65,7 @@ void main() {
     Following.minGap = Duration.zero;
     Following.maxGap = Duration.zero;
     Following.gap = Duration.zero;
+    Following.minRest = () => Duration.zero; // the learned rest alone; the floor has its own test
     Following.debugReset();
   });
 
@@ -322,5 +323,17 @@ void main() {
     await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(hours: 2)));
     expect(Following.inFlight, 1);
     await Following.setTwoAtATime(false);
+  });
+
+  test('no channel is checked sooner than the background refresh interval', () {
+    final now = t0.millisecondsSinceEpoch;
+    final busy = FollowState(newest: (now - const Duration(hours: 1).inMilliseconds) ~/ 1000);
+    Following.minRest = () => const Duration(hours: 1);
+    expect(Following.recheckAfter(busy, now), const Duration(hours: 1), reason: 'active: 30 min, raised to the 1 h floor');
+    expect(Following.recheckAfter(FollowState(newest: (now - const Duration(days: 40).inMilliseconds) ~/ 1000), now),
+        const Duration(hours: 12), reason: 'quiet channels still rest longer');
+    Following.minRest = () => const Duration(hours: 4);
+    expect(Following.recheckAfter(busy, now), const Duration(hours: 4));
+    Following.minRest = () => Duration.zero;
   });
 }
