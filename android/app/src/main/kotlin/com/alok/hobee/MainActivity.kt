@@ -202,6 +202,10 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
                                 call.argument<List<Int>>("spots") ?: listOf(10, 40, 70, 90))
                             runOnUiThread { result.success(r) }
                         }
+                        "poster" -> {
+                            val r = poster(call.argument<String>("path")!!, call.argument<Int>("width") ?: 360)
+                            runOnUiThread { result.success(r) }
+                        }
                         "save" -> {
                             val uri = save(call.argument<String>("path")!!, call.argument<String>("name")!!,
                                 call.argument<String>("mime")!!, call.argument<Boolean>("video")!!)
@@ -385,6 +389,32 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
             }
         }
         return out
+    }
+
+    /**
+     * One JPEG frame [width] pixels wide from a local video file, for a grid tile when the post has no working
+     * picture. Taken a tenth of the way in (the very first frame is often black); null when none can be read.
+     */
+    private fun poster(path: String, width: Int): ByteArray? {
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(path)
+            val ms = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            val full = r.getFrameAtTime(ms * 100L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: r.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) ?: return null
+            val w = minOf(width, full.width)
+            val h = maxOf(1, full.height * w / maxOf(1, full.width))
+            val small = if (w == full.width) full else Bitmap.createScaledBitmap(full, w, h, true)
+            val bytes = ByteArrayOutputStream()
+            small.compress(Bitmap.CompressFormat.JPEG, 85, bytes)
+            if (small !== full) small.recycle()
+            full.recycle()
+            return bytes.toByteArray()
+        } catch (e: Exception) {
+            return null
+        } finally {
+            try { r.release() } catch (e: Exception) { }
+        }
     }
 
     /**
