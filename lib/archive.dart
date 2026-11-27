@@ -905,8 +905,8 @@ class MediaCheck {
     return out.where((u) => u.startsWith('http')).toList();
   }
 
-  /// Pure verdict for one HTTP hop. true = served, false = clearly gone, null = unsure (keep showing).
-  @visibleForTesting
+  /// Pure verdict for one HTTP hop. true = served, false = clearly gone, null = unsure (keep showing). Downloads
+  /// use it too.
   static bool? verdict(Uri url, int code, String? location) {
     if (code == 404 || code == 410) return false;
     if (code >= 300 && code < 400) {

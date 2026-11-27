@@ -6,6 +6,7 @@ import 'age.dart';
 import 'following.dart';
 import 'follows.dart';
 import 'pace_log.dart' show saveTextToDownloads;
+import 'sub_users.dart';
 
 Future<String?> _askName(BuildContext context, String title, {String initial = ''}) {
   final c = TextEditingController(text: initial);
@@ -22,9 +23,11 @@ Future<String?> _askName(BuildContext context, String title, {String initial = '
   );
 }
 
-/// Settings → Following lists: profiles, their subreddits/users, import and export.
+/// Settings → Following lists: profiles, their subreddits/users, import and export. Tap an entry to browse it.
+/// [profile] picks the list shown first (default: the one used in Following).
 class FollowsScreen extends StatefulWidget {
-  const FollowsScreen({super.key});
+  final int? profile;
+  const FollowsScreen({super.key, this.profile});
   @override
   State<FollowsScreen> createState() => _FollowsScreenState();
 }
@@ -41,6 +44,7 @@ class _FollowsScreenState extends State<FollowsScreen> {
   @override
   void initState() {
     super.initState();
+    shown = widget.profile;
     FollowStore.version.addListener(_reload);
     _reload();
   }
@@ -285,7 +289,9 @@ class _FollowsScreenState extends State<FollowsScreen> {
                     final x = list[i];
                     final st = states[x.key];
                     return ListTile(
+                      key: Key('channel-${x.key}'),
                       dense: true,
+                      onTap: () => x.kind == FollowKind.sub ? openSubreddit(context, x.name) : openAuthor(context, x.name),
                       leading: Icon(x.kind == FollowKind.sub ? Icons.forum_outlined : Icons.person_outline),
                       title: Row(children: [
                         Flexible(child: Text(x.label, overflow: TextOverflow.ellipsis)),

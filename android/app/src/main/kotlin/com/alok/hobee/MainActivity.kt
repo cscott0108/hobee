@@ -1,6 +1,8 @@
 package com.alok.hobee
 
 import android.content.ContentValues
+import android.content.ComponentName
+import android.content.Intent
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -157,6 +159,24 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
                 if (call.arguments == true) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 result.success(null)
+            } else {
+                result.notImplemented()
+            }
+        }
+        // Panic profile: deleting it removes its settings, which the Flutter settings API can't reach from
+        // your own profile. Only the panic profile's prefix is accepted.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/space").setMethodCallHandler { call, result ->
+            val prefix = call.arguments as? String
+            if (call.method == "dropPrefs" && prefix != null && prefix.matches(Regex("hobeesP[1-9][0-9]*\\."))) {
+                val sp = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                val e = sp.edit()
+                for (k in sp.all.keys) if (k.startsWith(prefix)) e.remove(k)
+                e.commit()
+                result.success(null)
+            } else if (call.method == "restart") {
+                // Switching profiles: a fresh process, so nothing of the old profile stays in memory.
+                startActivity(Intent.makeRestartActivityTask(ComponentName(this, MainActivity::class.java)))
+                Runtime.getRuntime().exit(0)
             } else {
                 result.notImplemented()
             }

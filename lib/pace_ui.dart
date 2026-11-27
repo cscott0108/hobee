@@ -110,7 +110,7 @@ class _PaceLogScreenState extends State<PaceLogScreen> {
             child: Text(
                 'Now: ${Following.gap.inMilliseconds} ms between Following requests, '
                 '${Following.inFlight} at a time${Following.twoAtATime.value ? ' (Faster updates on)' : ''}. '
-                '$total entries kept (newest 5,000). The log stays on this phone and holds no subreddit or user names.',
+                '$total entries kept (newest ${PaceLog.keep.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+$)'), (_) => ',')}). The log stays on this phone and holds no subreddit or user names.',
                 style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
           ),
           _summary('Last hour', hour),

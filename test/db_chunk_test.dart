@@ -28,6 +28,23 @@ void main() {
     expect([for (final p in ps) p.id], ['b', 'd', 'a', 'e', 'c']);
   });
 
+  test('eachPostChunk gives every post once, a chunk at a time, and postAt reads one back', () async {
+    await Db.savePosts('s1', [post('a', 1), post('b', 2), post('c', 3)]);
+    await Db.savePosts('s2', [post('b', 2), post('d', 4)]);
+    final sizes = <int>[];
+    final got = <(int, String)>[];
+    await Db.eachPostChunk((chunk) async {
+      sizes.add(chunk.length);
+      got.addAll([for (final (r, p) in chunk) (r, p.id)]);
+    });
+    expect(got.map((x) => x.$2).toSet(), {'a', 'b', 'c', 'd'});
+    expect(got.length, 4, reason: 'b is saved under two sources but given once');
+    expect(sizes.every((n) => n <= 2), isTrue, reason: 'never more than chunkRows at a time');
+    final (row, id) = got.firstWhere((x) => x.$2 == 'd');
+    expect((await Db.postAt(row))?.id, id);
+    expect(await Db.postAt(999999), isNull);
+  });
+
   test('loadEverything returns each post once across sources', () async {
     await Db.savePosts('s1', [post('a', 1), post('b', 2), post('c', 3)]);
     await Db.savePosts('s2', [post('b', 2), post('d', 4)]);

@@ -297,6 +297,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) => VideoPrefs.startMuted.value = v,
           ),
         ),
+        ValueListenableBuilder(
+          valueListenable: VideoPrefs.startPaused,
+          builder: (_, on, _) => SwitchListTile(
+            key: const Key('video-start-paused'),
+            title: const Text('Start videos paused'),
+            subtitle: const Text('Swiping to a video shows its first frame; tap play to start it.'),
+            value: on,
+            onChanged: (v) => VideoPrefs.startPaused.value = v,
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: VideoPrefs.mixAudio,
+          builder: (_, on, _) => SwitchListTile(
+            key: const Key('video-mix-audio'),
+            title: const Text("Don't pause other audio"),
+            subtitle: const Text('Music or podcasts keep playing while a video plays over them. Muted videos never pause them.'),
+            value: on,
+            onChanged: (v) => VideoPrefs.mixAudio.value = v,
+          ),
+        ),
         const AppLockSettings(),
         ValueListenableBuilder(
           valueListenable: HideGestures.sensors,

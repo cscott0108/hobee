@@ -12,6 +12,9 @@ import 'player.dart';
 import 'screen_awake.dart';
 import 'app_lock.dart';
 import 'app_lock_ui.dart';
+import 'panic_profile.dart';
+import 'space.dart';
+import 'start_lock.dart';
 import 'db.dart';
 import 'following.dart';
 import 'hide_gestures.dart';
@@ -47,6 +50,20 @@ void main() {
 
 Future<void> _main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Panic profile on: the PIN picks whose data opens, before any of it is read.
+  var startLock = false;
+  try {
+    startLock = await StartLock.isOn();
+  } catch (_) {} // unreadable: start as before (the app lock still asks if it's on)
+  if (startLock) {
+    // A switch from the lock screen restarts into the profile whose PIN was just typed, without asking again.
+    int? switched;
+    try {
+      switched = await StartLock.takeSwitch();
+    } catch (_) {}
+    Space.open(switched ?? await StartLock.ask(_theme(Brightness.light), _theme(Brightness.dark)));
+    AppLock.unlockedAtStart = true;
+  }
   await _safe('crashlog', CrashLog.init);
   final sp = await SharedPreferences.getInstance();
   // If the last launch died before the first frame settled, start in safe mode: drop saved search state.
@@ -81,7 +98,10 @@ Future<void> _main() async {
   await _safe('awake', ScreenAwake.load);
   AppLock.viewingProfile = () => mainTab.value == 1 ? followingProfile(deepSource.value ?? '') : null;
   ScreenAwake.onIdle = AppLock.idle;
+  AppLock.otherProfileFor = StartLock.otherProfileFor;
+  AppLock.switchTo = StartLock.switchTo;
   await _safe('lock', AppLock.load);
+  await _safe('panic', PanicProfile.load);
   await _safe('hide', HideGestures.load);
   await _safe('auth', Auth.i.init);
   await _safe('session', RedditSession.load);

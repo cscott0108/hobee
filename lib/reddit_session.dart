@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'space.dart';
 
 /// Thrown when Reddit no longer accepts the saved session (401/403). The session is marked ended and the app
 /// carries on without login.
@@ -25,9 +26,9 @@ class RedditSession {
   static const _web = MethodChannel('hobee/web');
 
   /// Test seams.
-  static Future<String?> Function(String key) read = (k) => const FlutterSecureStorage().read(key: k);
+  static Future<String?> Function(String key) read = (k) => const FlutterSecureStorage().read(key: Space.key(k));
   static Future<void> Function(String key, String? value) write = (k, v) async =>
-      v == null ? const FlutterSecureStorage().delete(key: k) : const FlutterSecureStorage().write(key: k, value: v);
+      v == null ? const FlutterSecureStorage().delete(key: Space.key(k)) : const FlutterSecureStorage().write(key: Space.key(k), value: v);
   static http.Client Function() client = http.Client.new;
 
   static final cookie = ValueNotifier<String?>(null);

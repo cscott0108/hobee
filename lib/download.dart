@@ -12,17 +12,69 @@ import 'saved.dart';
 import 'db.dart';
 import 'download_dupes.dart';
 import 'downloaded.dart';
+import 'archive.dart' show MediaCheck;
 
 const _ch = MethodChannel('hobee/media');
 
+/// The host says the media was removed (404/410, or a redirect to a "removed" picture such as imgur's).
+class MediaRemoved implements Exception {
+  @override
+  String toString() => 'This was removed from its host';
+}
+
 class Downloader {
+  // Test seams.
+  @visibleForTesting
+  static http.Client Function() client = http.Client.new;
+  @visibleForTesting
+  static Future<Directory> Function() tempDir = getTemporaryDirectory;
+
+  /// Redirects are followed by hand, like the grid's "is it gone?" check, so a host's "removed" placeholder
+  /// picture is never saved as if it were the real one.
   static Future<File> _fetch(String url, String name) async {
-    final dir = await getTemporaryDirectory();
+    final dir = await tempDir();
     final f = File('${dir.path}/$name');
-    final r = await http.get(Uri.parse(url), headers: {'User-Agent': 'android:io.github.cscott0108.hobees:v1.0'}).timeout(const Duration(seconds: 60));
-    if (r.statusCode != 200) throw Exception('HTTP ${r.statusCode}');
-    await f.writeAsBytes(r.bodyBytes);
-    return f;
+    final c = client();
+    try {
+      var u = Uri.parse(url);
+      for (var hop = 0; hop < 6; hop++) {
+        final rq = http.Request('GET', u)
+          ..followRedirects = false
+          ..headers['User-Agent'] = 'android:io.github.cscott0108.hobees:v1.0';
+        final r = await c.send(rq).timeout(const Duration(seconds: 60));
+        final loc = r.headers['location'];
+        if (MediaCheck.verdict(u, r.statusCode, loc) == false) {
+          r.stream.listen(null).cancel().ignore();
+          throw MediaRemoved();
+        }
+        if (r.statusCode >= 300 && r.statusCode < 400 && loc != null) {
+          r.stream.listen(null).cancel().ignore();
+          u = u.resolve(loc);
+          continue;
+        }
+        if (r.statusCode != 200) {
+          r.stream.listen(null).cancel().ignore();
+          throw Exception('HTTP ${r.statusCode}');
+        }
+        await f.writeAsBytes(await r.stream.toBytes());
+        return f;
+      }
+      throw Exception('Too many redirects');
+    } finally {
+      c.close();
+    }
+  }
+
+  @visibleForTesting
+  static Future<(File, String, String, bool)> prepare(MediaItem m) => _prepare(m);
+
+  /// When the picture itself was removed: saves the thumbnail you saw in the grid instead (smaller, lower
+  /// quality). The original is marked downloaded too.
+  static Future<String> saveThumb(MediaItem m, Post post, {int? profile}) async {
+    if (!m.thumb.startsWith('http')) throw MediaRemoved();
+    final r = await save(MediaItem(MediaType.image, m.thumb, m.thumb), post, profile: profile);
+    await Downloaded.mark(m.url, post.id);
+    return r;
   }
 
   /// Storage permission for saving to shared folders (only asked on Android 9 and older).
@@ -149,11 +201,18 @@ class Downloader {
       File f;
       try {
         f = await _fetch(src, 'i_$ts.${_ext(src, 'jpg')}');
-      } catch (_) {
+      } catch (first) {
         final alt = m.preview != null && m.preview != src ? m.preview! : (m.url != src ? m.url : null);
         if (alt == null) rethrow;
         src = alt;
-        f = await _fetch(src, 'i_$ts.${_ext(src, 'jpg')}');
+        try {
+          f = await _fetch(src, 'i_$ts.${_ext(src, 'jpg')}');
+        } catch (second) {
+          // Removed at the first copy and not served by the other either: say removed (the viewer offers the
+          // thumbnail then), not a bare HTTP error.
+          if (first is MediaRemoved && second is! MediaRemoved) throw first;
+          rethrow;
+        }
       }
       var ext = _ext(src, 'jpg');
       // Cleaned copy (default): JPEG compression cleaned up, saved as PNG so nothing gets recompressed again.

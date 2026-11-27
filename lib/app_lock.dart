@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'space.dart';
 
 /// App PIN hash: PBKDF2-HMAC-SHA256 with a random 16-byte salt, stored as `v1:<iterations>:<salt>:<hash>`
 /// (base64). The PIN itself is never stored.
@@ -52,9 +53,9 @@ List<int> _pbkdf2(List<int> password, List<int> salt, int iterations) {
 class PinStore {
   static const _key = 'appLockPin';
   final _s = const FlutterSecureStorage();
-  Future<String?> read() => _s.read(key: _key);
-  Future<void> write(String v) => _s.write(key: _key, value: v);
-  Future<void> delete() => _s.delete(key: _key);
+  Future<String?> read() => _s.read(key: Space.key(_key));
+  Future<void> write(String v) => _s.write(key: Space.key(_key), value: v);
+  Future<void> delete() => _s.delete(key: Space.key(_key));
 }
 
 /// Settings → App lock (off by default).
@@ -71,6 +72,9 @@ class AppLock {
   static final hideRecents = ValueNotifier<bool>(false);
   static final lockedProfiles = ValueNotifier<Set<int>>(const {});
   static final hasPin = ValueNotifier<bool>(false);
+
+  /// The start-up PIN screen already unlocked the app (panic profile on), so the app lock doesn't ask again.
+  static bool unlockedAtStart = false;
 
   /// The lock screen shows while this is true.
   static final locked = ValueNotifier<bool>(false);
@@ -96,6 +100,9 @@ class AppLock {
   static DateTime Function() clock = DateTime.now;
   @visibleForTesting
   static Future<void> Function(bool on) setSecure = _setSecure;
+  /// The other profile a PIN opens, and the restart into it (set by the app to [StartLock]'s; none in tests).
+  static Future<int?> Function(String pin) otherProfileFor = (_) async => null;
+  static Future<void> Function(int profile) switchTo = (_) async {};
   /// The Following list shown right now, if any (set by the app).
   static int? Function() viewingProfile = () => null;
 
@@ -125,7 +132,8 @@ class AppLock {
 
   static Future<void> load() async {
     final sp = await SharedPreferences.getInstance();
-    enabled.value = sp.getBool('lockEnabled') ?? false;
+    // The panic profile starts locked by default, so its lock screen can switch back to your profile.
+    enabled.value = sp.getBool('lockEnabled') ?? Space.id != 0;
     final a = sp.getInt('lockAfter') ?? 0;
     afterSeconds.value = afterChoices.contains(a) ? a : 0;
     hideRecents.value = sp.getBool('lockHideRecents') ?? false;
@@ -143,7 +151,11 @@ class AppLock {
     });
     lockedProfiles.addListener(() => sp.setStringList('lockedProfiles', [for (final p in lockedProfiles.value) '$p']));
     if (hideRecents.value) await setSecure(true);
-    if (enabled.value) lock(); // locked on app start
+    if (unlockedAtStart) {
+      _openProfiles.addAll(lockedProfiles.value); // like unlocking the whole app
+    } else if (enabled.value) {
+      lock(); // locked on app start
+    }
   }
 
   /// Can an unlock happen at all? (phone screen lock or an app PIN)
@@ -201,6 +213,9 @@ class AppLock {
     if (enabled.value && !locked.value) lock();
   }
 
+  /// Fingerprint, face or the phone's screen lock, without touching the lock state (the start-up screen).
+  static Future<bool> askDevice(String reason) => deviceAuth(reason);
+
   static Future<bool> unlockWithDevice() async {
     final ok = await deviceAuth(reason);
     if (ok) _unlocked();
@@ -223,6 +238,20 @@ class AppLock {
       _waitUntil = null;
       _unlocked();
       return true;
+    }
+    // Panic profile on: the other profile's PIN on the app or list lock restarts into that profile. Not on an
+    // unlock a settings change asked for.
+    if (!cancellable) {
+      int? other;
+      try {
+        other = await otherProfileFor(pin);
+      } catch (_) {}
+      if (other != null) {
+        _wrong = 0;
+        _waitUntil = null;
+        await switchTo(other);
+        return true;
+      }
     }
     if (++_wrong >= 5) {
       _wrong = 0;
@@ -298,5 +327,6 @@ class AppLock {
     _wrong = 0;
     _waitUntil = null;
     viewingProfile = () => null;
+    unlockedAtStart = false;
   }
 }

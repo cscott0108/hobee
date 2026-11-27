@@ -267,10 +267,11 @@ class _PhotoMatchScreenState extends State<PhotoMatchScreen> {
     super.dispose();
   }
 
+  bool _close(int? h) => h != null && hash != null && Dedupe.hamming(h, hash!) <= similarBits;
+
   void _check(Post p, int i, int? h) {
-    if (h == null || hash == null) return;
-    final b = Dedupe.hamming(h, hash!);
-    if (b > similarBits) return;
+    if (!_close(h)) return;
+    final b = Dedupe.hamming(h!, hash!);
     final cur = hits[p.id];
     if (cur == null || b < cur.bits) hits[p.id] = _Hit(p, i, b);
   }
@@ -283,30 +284,37 @@ class _PhotoMatchScreenState extends State<PhotoMatchScreen> {
       if (mounted) setState(() => error = 'Couldn\'t read that picture');
       return;
     }
-    final all = await Db.loadEverything();
-    await Dedupe.warm(all);
-    final missing = <(Post, int, String)>[];
-    for (final p in all) {
-      final ms = p.media.take(Dedupe.maxPerPost).toList();
-      for (var i = 0; i < ms.length; i++) {
-        final t = ms[i].thumb;
-        if (t.isEmpty) continue;
-        if (Dedupe.known(t)) {
-          _check(p, i, Dedupe.cachedHash(t));
-        } else {
-          missing.add((p, i, t));
+    // A chunk at a time: the whole cache never sits in memory at once. Pictures not hashed yet are kept as
+    // (row, media index, thumb) and their post is read again only when it matches.
+    final missing = <(int, int, String)>[];
+    await Db.eachPostChunk((chunk) async {
+      await Dedupe.warm([for (final (_, p) in chunk) p]);
+      for (final (r, p) in chunk) {
+        final ms = p.media.take(Dedupe.maxPerPost).toList();
+        for (var i = 0; i < ms.length; i++) {
+          final t = ms[i].thumb;
+          if (t.isEmpty) continue;
+          if (Dedupe.known(t)) {
+            _check(p, i, Dedupe.cachedHash(t));
+          } else {
+            missing.add((r, i, t));
+          }
         }
       }
-    }
+      if (mounted && hits.isNotEmpty) setState(() {});
+    });
     if (!mounted) return;
     setState(() { loaded = true; todo = missing.length; scanning = missing.isNotEmpty; });
     // Hash what's missing, a few at a time, showing results as they land.
     var next = 0;
     Future<void> worker() async {
       while (!stopped && next < missing.length) {
-        final (p, i, t) = missing[next++];
+        final (r, i, t) = missing[next++];
         final h = await Dedupe.hashFor(t);
-        _check(p, i, h);
+        if (_close(h)) {
+          final p = await Db.postAt(r);
+          if (p != null) _check(p, i, h);
+        }
         done++;
         if (mounted && (done % 8 == 0 || done == todo)) setState(() {});
       }

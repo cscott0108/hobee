@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'db.dart';
 import 'models.dart';
+import 'space.dart';
 
 /// One file in the private Hobees gallery (Phase 6). The file lives in app-private storage, so the
 /// phone's gallery and other apps can't see it; the row keeps where it came from.
@@ -73,7 +74,7 @@ class SavedStore {
   static final changes = ValueNotifier<int>(0);
 
   static Future<Directory> dir() async {
-    final d = Directory('${(await baseDir()).path}/gallery');
+    final d = Directory('${(await baseDir()).path}/${Space.galleryDir}');
     if (!await d.exists()) await d.create(recursive: true);
     return d;
   }
