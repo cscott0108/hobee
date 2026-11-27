@@ -1,5 +1,6 @@
 import 'follow_button.dart';
 import 'follows.dart';
+import 'follows_ui.dart';
 import 'following_ui.dart';
 import 'following.dart';
 import 'package:flutter/material.dart';
@@ -180,6 +181,14 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
           sources: false,
           header: const Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [FollowingStatusBar(), FollowingKindChips()]),
           leading: IconButton(icon: const Icon(Icons.arrow_back), tooltip: 'Back', onPressed: _reset),
+          actions: [
+            IconButton(
+              key: const Key('following-list'),
+              icon: const Icon(Icons.format_list_bulleted),
+              tooltip: 'Subreddits and users',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FollowsScreen(profile: followingProfile(src)))),
+            ),
+          ],
         ),
       );
     }

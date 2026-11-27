@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/db.dart';
 import 'package:hobee/follows.dart';
 import 'package:hobee/follows_ui.dart';
+import 'package:hobee/nav.dart';
+import 'package:hobee/sub_search.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -134,6 +136,34 @@ void main() {
       final main = (await FollowStore.profiles()).first.id;
       await FollowStore.renameProfile(main, 'Everything');
       expect((await FollowStore.profiles()).first.name, 'Everything');
+    });
+
+    testWidgets('tapping a list entry opens that user or subreddit in Deep Search', (t) async {
+      final id = await t.runAsync(() async => (await FollowStore.profiles()).first.id);
+      Future<void> open() async {
+        await t.pumpWidget(MaterialApp(
+          home: Builder(builder: (c) => Scaffold(body: TextButton(onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => FollowsScreen(profile: id))), child: const Text('go')))),
+        ));
+        await t.tap(find.text('go'));
+        await t.pumpAndSettle();
+        for (var i = 0; i < 50 && find.byKey(const Key('channel-u/spez')).evaluate().isEmpty; i++) {
+          await t.runAsync(() => Future.delayed(const Duration(milliseconds: 100)));
+          await t.pump();
+        }
+      }
+
+      mainTab.value = 0;
+      await open();
+      await t.tap(find.byKey(const Key('channel-u/spez')));
+      await t.pumpAndSettle();
+      expect(deepSource.value, 'deep:spez');
+      expect(mainTab.value, 1);
+      expect(find.text('go'), findsOneWidget, reason: 'the list screen closes');
+
+      await open();
+      await t.tap(find.byKey(const Key('channel-r/pics')));
+      await t.pumpAndSettle();
+      expect(deepSource.value, subKey('pics'));
     });
   });
 }
