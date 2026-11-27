@@ -12,6 +12,8 @@ import 'player.dart';
 import 'screen_awake.dart';
 import 'app_lock.dart';
 import 'app_lock_ui.dart';
+import 'space.dart';
+import 'start_lock.dart';
 import 'db.dart';
 import 'following.dart';
 import 'hide_gestures.dart';
@@ -47,6 +49,15 @@ void main() {
 
 Future<void> _main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Panic profile on: the PIN picks whose data opens, before any of it is read.
+  var startLock = false;
+  try {
+    startLock = await StartLock.isOn();
+  } catch (_) {} // unreadable: start as before (the app lock still asks if it's on)
+  if (startLock) {
+    Space.open(await StartLock.ask(_theme(Brightness.light), _theme(Brightness.dark)));
+    AppLock.unlockedAtStart = true;
+  }
   await _safe('crashlog', CrashLog.init);
   final sp = await SharedPreferences.getInstance();
   // If the last launch died before the first frame settled, start in safe mode: drop saved search state.

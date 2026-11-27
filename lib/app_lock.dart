@@ -73,6 +73,9 @@ class AppLock {
   static final lockedProfiles = ValueNotifier<Set<int>>(const {});
   static final hasPin = ValueNotifier<bool>(false);
 
+  /// The start-up PIN screen already unlocked the app (panic profile on), so the app lock doesn't ask again.
+  static bool unlockedAtStart = false;
+
   /// The lock screen shows while this is true.
   static final locked = ValueNotifier<bool>(false);
   static String reason = 'Unlock Hobees';
@@ -144,7 +147,11 @@ class AppLock {
     });
     lockedProfiles.addListener(() => sp.setStringList('lockedProfiles', [for (final p in lockedProfiles.value) '$p']));
     if (hideRecents.value) await setSecure(true);
-    if (enabled.value) lock(); // locked on app start
+    if (unlockedAtStart) {
+      _openProfiles.addAll(lockedProfiles.value); // like unlocking the whole app
+    } else if (enabled.value) {
+      lock(); // locked on app start
+    }
   }
 
   /// Can an unlock happen at all? (phone screen lock or an app PIN)
@@ -299,5 +306,6 @@ class AppLock {
     _wrong = 0;
     _waitUntil = null;
     viewingProfile = () => null;
+    unlockedAtStart = false;
   }
 }
