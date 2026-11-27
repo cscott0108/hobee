@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/app_lock.dart';
 import 'package:hobee/app_lock_ui.dart';
 import 'package:hobee/screen_awake.dart';
+import 'package:hobee/space.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class MemPins extends PinStore {
@@ -232,6 +233,56 @@ void main() {
       expect(find.text('Wrong PIN'), findsOneWidget);
       await type('2580');
       expect(find.byKey(const Key('lock-screen')), findsNothing);
+    });
+  });
+
+  group('panic profile', () {
+    late List<int> switched;
+    setUp(() {
+      switched = [];
+      AppLock.otherProfileFor = (p) async => p == '2222' ? 1 : null;
+      AppLock.switchTo = (id) async => switched.add(id);
+    });
+    tearDown(() {
+      AppLock.otherProfileFor = (_) async => null;
+      AppLock.switchTo = (_) async {};
+      Space.debugReset();
+    });
+
+    test("the other profile's PIN on the lock screen switches to it", () async {
+      await AppLock.setPin('1111');
+      AppLock.lock();
+      expect(await AppLock.unlockWithPin('2222'), isTrue);
+      expect(switched, [1]);
+    });
+
+    test("a wrong PIN doesn't switch, and your own PIN just unlocks", () async {
+      await AppLock.setPin('1111');
+      AppLock.lock();
+      expect(await AppLock.unlockWithPin('3333'), isFalse);
+      expect(await AppLock.unlockWithPin('1111'), isTrue);
+      expect(AppLock.locked.value, isFalse);
+      expect(switched, isEmpty);
+    });
+
+    test('an unlock a settings change asked for never switches', () async {
+      await AppLock.setPin('1111');
+      final f = AppLock.confirm('Unlock to turn the app lock off');
+      expect(await AppLock.unlockWithPin('2222'), isFalse);
+      expect(switched, isEmpty);
+      AppLock.cancel();
+      expect(await f, isFalse);
+    });
+
+    test('the panic profile starts with its app lock on; yours keeps its default', () async {
+      SharedPreferences.setMockInitialValues({});
+      await AppLock.load();
+      expect(AppLock.enabled.value, isFalse);
+      AppLock.debugReset();
+      SharedPreferences.setMockInitialValues({}); // before picking the profile, as at start-up
+      Space.open(1);
+      await AppLock.load();
+      expect(AppLock.enabled.value, isTrue);
     });
   });
 }

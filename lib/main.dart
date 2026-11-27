@@ -56,7 +56,12 @@ Future<void> _main() async {
     startLock = await StartLock.isOn();
   } catch (_) {} // unreadable: start as before (the app lock still asks if it's on)
   if (startLock) {
-    Space.open(await StartLock.ask(_theme(Brightness.light), _theme(Brightness.dark)));
+    // A switch from the lock screen restarts into the profile whose PIN was just typed, without asking again.
+    int? switched;
+    try {
+      switched = await StartLock.takeSwitch();
+    } catch (_) {}
+    Space.open(switched ?? await StartLock.ask(_theme(Brightness.light), _theme(Brightness.dark)));
     AppLock.unlockedAtStart = true;
   }
   await _safe('crashlog', CrashLog.init);
@@ -93,6 +98,8 @@ Future<void> _main() async {
   await _safe('awake', ScreenAwake.load);
   AppLock.viewingProfile = () => mainTab.value == 1 ? followingProfile(deepSource.value ?? '') : null;
   ScreenAwake.onIdle = AppLock.idle;
+  AppLock.otherProfileFor = StartLock.otherProfileFor;
+  AppLock.switchTo = StartLock.switchTo;
   await _safe('lock', AppLock.load);
   await _safe('panic', PanicProfile.load);
   await _safe('hide', HideGestures.load);

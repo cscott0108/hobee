@@ -1,6 +1,8 @@
 package com.alok.hobee
 
 import android.content.ContentValues
+import android.content.ComponentName
+import android.content.Intent
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -171,6 +173,10 @@ class MainActivity : FlutterFragmentActivity(), SensorEventListener {
                 for (k in sp.all.keys) if (k.startsWith(prefix)) e.remove(k)
                 e.commit()
                 result.success(null)
+            } else if (call.method == "restart") {
+                // Switching profiles: a fresh process, so nothing of the old profile stays in memory.
+                startActivity(Intent.makeRestartActivityTask(ComponentName(this, MainActivity::class.java)))
+                Runtime.getRuntime().exit(0)
             } else {
                 result.notImplemented()
             }

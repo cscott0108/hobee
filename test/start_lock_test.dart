@@ -9,6 +9,7 @@ void main() {
   late Map<String, String> store;
   late DateTime now;
   late List<String> reads;
+  late int restarts;
 
   setUp(() {
     StartLock.debugReset();
@@ -20,8 +21,12 @@ void main() {
       reads.add(k);
       return store[k];
     };
+    StartLock.write = (k, v) async => v == null ? store.remove(k) : store[k] = v;
     StartLock.clock = () => now;
+    restarts = 0;
+    StartLock.restart = () async => restarts++;
   });
+  tearDown(Space.debugReset);
 
   void setPins({String? real, String? panic}) {
     if (real != null) store[StartLock.realKey] = hashPin(real, iterations: 10);
@@ -103,6 +108,40 @@ void main() {
     test('without it, the app lock asks on start as before', () async {
       await AppLock.load();
       expect(AppLock.locked.value, isTrue);
+    });
+  });
+
+  group('switching from inside a profile', () {
+    test("only the other profile's PIN switches, and only while the panic profile is on", () async {
+      setPins(real: '1111');
+      expect(await StartLock.otherProfileFor('2222'), isNull, reason: 'off');
+      setPins(panic: '2222');
+      expect(await StartLock.otherProfileFor('2222'), 1);
+      expect(await StartLock.otherProfileFor('1111'), isNull, reason: 'this profile: a normal unlock');
+      expect(await StartLock.otherProfileFor('9999'), isNull);
+      Space.open(1);
+      expect(await StartLock.otherProfileFor('1111'), 0);
+      expect(await StartLock.otherProfileFor('2222'), isNull);
+    });
+
+    test('the switch restarts once, and the restart opens that profile without asking, once', () async {
+      setPins(real: '1111', panic: '2222');
+      await StartLock.switchTo(1);
+      expect(restarts, 1);
+      now = now.add(const Duration(seconds: 3));
+      expect(await StartLock.takeSwitch(), 1);
+      expect(await StartLock.takeSwitch(), isNull, reason: 'used up');
+    });
+
+    test('an old or odd switch note is ignored (and removed)', () async {
+      await StartLock.switchTo(0);
+      now = now.add(const Duration(seconds: 31));
+      expect(await StartLock.takeSwitch(), isNull);
+      expect(store.containsKey(StartLock.switchKey), isFalse);
+      for (final v in ['7:${now.millisecondsSinceEpoch}', 'x', '1:${now.add(const Duration(minutes: 1)).millisecondsSinceEpoch}']) {
+        store[StartLock.switchKey] = v;
+        expect(await StartLock.takeSwitch(), isNull, reason: v);
+      }
     });
   });
 }

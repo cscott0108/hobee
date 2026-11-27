@@ -100,6 +100,9 @@ class AppLock {
   static DateTime Function() clock = DateTime.now;
   @visibleForTesting
   static Future<void> Function(bool on) setSecure = _setSecure;
+  /// The other profile a PIN opens, and the restart into it (set by the app to [StartLock]'s; none in tests).
+  static Future<int?> Function(String pin) otherProfileFor = (_) async => null;
+  static Future<void> Function(int profile) switchTo = (_) async {};
   /// The Following list shown right now, if any (set by the app).
   static int? Function() viewingProfile = () => null;
 
@@ -129,7 +132,8 @@ class AppLock {
 
   static Future<void> load() async {
     final sp = await SharedPreferences.getInstance();
-    enabled.value = sp.getBool('lockEnabled') ?? false;
+    // The panic profile starts locked by default, so its lock screen can switch back to your profile.
+    enabled.value = sp.getBool('lockEnabled') ?? Space.id != 0;
     final a = sp.getInt('lockAfter') ?? 0;
     afterSeconds.value = afterChoices.contains(a) ? a : 0;
     hideRecents.value = sp.getBool('lockHideRecents') ?? false;
@@ -231,6 +235,20 @@ class AppLock {
       _waitUntil = null;
       _unlocked();
       return true;
+    }
+    // Panic profile on: the other profile's PIN on the app or list lock restarts into that profile. Not on an
+    // unlock a settings change asked for.
+    if (!cancellable) {
+      int? other;
+      try {
+        other = await otherProfileFor(pin);
+      } catch (_) {}
+      if (other != null) {
+        _wrong = 0;
+        _waitUntil = null;
+        await switchTo(other);
+        return true;
+      }
     }
     if (++_wrong >= 5) {
       _wrong = 0;

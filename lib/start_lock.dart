@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'app_lock.dart';
 import 'app_lock_ui.dart' show PinPad;
+import 'space.dart';
 
 /// The panic profile's start-up choice.
 ///
@@ -12,12 +14,22 @@ import 'app_lock_ui.dart' show PinPad;
 class StartLock {
   static const realKey = 'appLockPin';
   static const panicKey = 'p1.appLockPin';
+  /// Set just before a switch restarts the app: `<profile>:<ms since epoch>`. Only Hobees can write it (its own
+  /// encrypted storage), so the restart may open that profile without asking again.
+  static const switchKey = 'switchTo';
+  static const switchFresh = Duration(seconds: 30);
 
   /// Test seams.
   @visibleForTesting
   static Future<String?> Function(String key) read = (k) => const FlutterSecureStorage().read(key: k);
   @visibleForTesting
+  static Future<void> Function(String key, String? value) write = (k, v) async =>
+      v == null ? const FlutterSecureStorage().delete(key: k) : const FlutterSecureStorage().write(key: k, value: v);
+  @visibleForTesting
   static DateTime Function() clock = DateTime.now;
+  /// Restarts the app process (Android side).
+  @visibleForTesting
+  static Future<void> Function() restart = () => const MethodChannel('hobee/space').invokeMethod('restart');
 
   static int _wrong = 0;
   static DateTime? _waitUntil;
@@ -49,6 +61,34 @@ class StartLock {
       _waitUntil = clock().add(const Duration(seconds: 30));
     }
     return null;
+  }
+
+  /// The other profile [pin] opens, from inside a profile; null when it's this profile's PIN, wrong, or the panic
+  /// profile is off.
+  static Future<int?> otherProfileFor(String pin) async {
+    final other = Space.id == 0 ? 1 : 0;
+    if (!await isOn()) return null;
+    final stored = await read(other == 0 ? realKey : panicKey);
+    return stored != null && verifyPin(pin, stored) ? other : null;
+  }
+
+  /// Restarts Hobees into profile [id] (the PIN for it was just typed).
+  static Future<void> switchTo(int id) async {
+    await write(switchKey, '$id:${clock().millisecondsSinceEpoch}');
+    await restart();
+  }
+
+  /// At start-up: the profile a switch just asked for, if any (used once; older than [switchFresh] is ignored).
+  static Future<int?> takeSwitch() async {
+    final v = await read(switchKey);
+    if (v == null) return null;
+    await write(switchKey, null);
+    final parts = v.split(':');
+    final id = parts.length == 2 ? int.tryParse(parts[0]) : null;
+    final at = parts.length == 2 ? int.tryParse(parts[1]) : null;
+    if (id == null || at == null || (id != 0 && id != 1)) return null;
+    final age = clock().difference(DateTime.fromMillisecondsSinceEpoch(at));
+    return age.isNegative || age > switchFresh ? null : id;
   }
 
   /// Shows the PIN screen as the whole app until a PIN picks a profile; returns that profile.
