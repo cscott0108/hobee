@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 import 'app_lock.dart';
+import 'background.dart' show BackgroundRefresh;
 import 'db.dart';
 import 'saved.dart';
 import 'space.dart';
@@ -68,6 +69,9 @@ class PanicProfile {
   static Future<void> turnOff({required bool delete}) async {
     await secure.delete(key: StartLock.panicKey);
     on.value = false;
+    try {
+      await BackgroundRefresh.cancel(BackgroundRefresh.taskFor(id)); // its background refresh stops too
+    } catch (_) {}
     if (delete) await wipe();
   }
 

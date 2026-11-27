@@ -27,6 +27,8 @@ class StartLock {
   @visibleForTesting
   static Future<File> Function() switchFile = () async => File('${(await getApplicationSupportDirectory()).path}/switch_to');
   @visibleForTesting
+  static Future<Directory> Function() tempDir = getTemporaryDirectory;
+  @visibleForTesting
   static DateTime Function() clock = DateTime.now;
   /// Restarts the app process (Android side).
   @visibleForTesting
@@ -75,8 +77,22 @@ class StartLock {
 
   /// Restarts Hobees into profile [id] (the PIN for it was just typed).
   static Future<void> switchTo(int id) async {
+    await clearTemp();
     (await switchFile()).writeAsStringSync('$id:${clock().millisecondsSinceEpoch}', flush: true);
     await restart();
+  }
+
+  /// Empties Hobees' temp folder (video frames from duplicate checks, download staging, log exports), so
+  /// nothing of this profile is left for the next one. Pictures on screen live in memory only; the restart
+  /// clears them.
+  static Future<void> clearTemp() async {
+    try {
+      for (final e in (await tempDir()).listSync()) {
+        try {
+          e.deleteSync(recursive: true);
+        } catch (_) {} // in use: skip
+      }
+    } catch (_) {}
   }
 
   /// At start-up: the profile a switch just asked for, if any (used once; older than [switchFresh] is ignored).

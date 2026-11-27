@@ -6,12 +6,24 @@ import 'following.dart';
 import 'pace_log.dart';
 import 'follows.dart';
 import 'net_guard.dart';
+import 'space.dart';
+import 'start_lock.dart';
 
 /// Settings → Background refresh: keeps the active Following profile up to date while the app is closed,
 /// using Android's WorkManager. Android picks the exact time (at least the chosen interval apart, later in
 /// Doze), so this keeps lists fresh but isn't live. Off by default.
 class BackgroundRefresh {
   static const task = 'hobees.following.refresh';
+  /// Each profile has its own task, which opens only that profile's data (your profile keeps the old name).
+  static String taskFor(int profile) => profile == 0 ? task : '$task.p$profile';
+
+  // Test seams.
+  @visibleForTesting
+  static Future<void> Function(String name, Map<String, dynamic> input, Duration every, Constraints c) register =
+      (name, input, every, c) => Workmanager().registerPeriodicTask(name, task,
+          frequency: every, constraints: c, inputData: input, existingWorkPolicy: ExistingPeriodicWorkPolicy.update);
+  @visibleForTesting
+  static Future<void> Function(String name) cancel = (name) => Workmanager().cancelByUniqueName(name);
   static final enabled = ValueNotifier<bool>(false);
   static final wifiOnly = ValueNotifier<bool>(true);
   static final chargingOnly = ValueNotifier<bool>(false);
@@ -38,25 +50,38 @@ class BackgroundRefresh {
 
   /// Registers (or replaces) the periodic task with the current settings, or cancels it when off.
   static Future<void> schedule() async {
+    final name = taskFor(Space.id);
     try {
       if (!enabled.value) {
-        await Workmanager().cancelByUniqueName(task);
+        await cancel(name);
         return;
       }
-      await Workmanager().registerPeriodicTask(
-        task,
-        task,
-        frequency: Duration(minutes: everyMinutes.value),
-        constraints: Constraints(
+      await register(
+        name,
+        {'space': Space.id},
+        Duration(minutes: everyMinutes.value),
+        Constraints(
           networkType: wifiOnly.value ? NetworkType.unmetered : NetworkType.connected,
           requiresCharging: chargingOnly.value,
           requiresBatteryNotLow: true,
         ),
-        existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
       );
     } catch (e) {
       debugPrint('background refresh schedule failed: $e');
     }
+  }
+
+  /// In the background task, before anything is read: opens the profile the task belongs to. False when it's
+  /// the panic profile and that's off (its task is cancelled then).
+  static Future<bool> openProfile(Map<String, dynamic>? input) async {
+    final v = input?['space'];
+    final id = v is int ? v : 0;
+    if (id != 0 && !await StartLock.isOn()) {
+      await cancel(taskFor(id));
+      return false;
+    }
+    Space.open(id);
+    return true;
   }
 
   /// One background pass: continue (or start) the active profile's refresh round for up to [maxRun].
@@ -83,6 +108,7 @@ void backgroundDispatcher() {
     DartPluginRegistrant.ensureInitialized();
     PaceLog.inBackgroundTask = true; // its requests show as 'background' in the archive pace log
     try {
+      if (!await BackgroundRefresh.openProfile(input)) return true;
       // Wi-Fi safety: only on the connection last seen trusted (or mobile data if allowed). Never reads the
       // Wi-Fi name in the background, so no 'location all the time' permission.
       if (!await NetGuard.backgroundOk()) return true;
